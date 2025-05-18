@@ -261,7 +261,7 @@ class MainWindow(QWidget):
         dlg.exec()
 
     def _on_help(self):
-        webbrowser.open("https://example.com")
+        webbrowser.open("https://github.com/victorrobotxt/TerraFract")
 
 
 def main():

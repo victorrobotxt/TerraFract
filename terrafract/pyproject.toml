@@ -3,7 +3,7 @@ name = "terrafract"
 version = "1.0.0"
 description = "Procedural terrain generation toolkit"
 authors = [
-  { name = "Vic", email = "you@example.com" }
+  { name = "Vic", email = "victorkoycheff@gmail.com" }
 ]
 dependencies = [
   "numpy",
