@@ -1,13 +1,4 @@
 # File: terrafract/fractal_workbench.py
-# fractal_workbench.py – revamped UI/UX for TerraFract
-# -------------------------------------------------------------
-# Key improvements:
-#   • Basic vs Advanced controls via QTabWidget
-#   • One-click Presets (no fractal jargon)
-#   • Tooltips & readable labels
-#   • Debounced redraws (200 ms) for buttery sliders
-#   • Fixed export spacing, bigger canvas, consistent font
-
 import os
 import random
 import sys
@@ -18,6 +9,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
 from .heightmap_generators import generate_heightmap
+
 
 class _Debounce(QtCore.QObject):
     """Call a slot once after inactivity (bundles rapid signals)."""
@@ -35,6 +27,7 @@ class _Debounce(QtCore.QObject):
     def _emit(self):
         if self._slot:
             self._slot()
+
 
 class FractalWorkbench(QtWidgets.QMainWindow):
     """Simplified yet powerful terrain workbench."""
@@ -96,20 +89,21 @@ class FractalWorkbench(QtWidgets.QMainWindow):
         exp_bar.addWidget(exp_btn)
         vbox.addLayout(exp_bar)
 
+        # ── Rotation‐lock: keep the terrain totally fixed (no X, Y or Z spin)
+        self._install_rotation_lock()
+
     def _make_simple_tab(self):
         w = QtWidgets.QWidget()
         form = QtWidgets.QFormLayout(w)
 
         self.s_algo = QtWidgets.QComboBox()
         self.s_algo.addItems(["diamond-square", "fbm"])
-        self.s_algo.setToolTip("Fractal generator")
         self.s_algo.currentTextChanged.connect(lambda: self._debounce.trigger(self.update))
         form.addRow("Algorithm:", self.s_algo)
 
         self.s_rough = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.s_rough.setRange(1, 100)
         self.s_rough.setValue(30)
-        self.s_rough.setToolTip("Terrain roughness")
         self.s_rough.valueChanged.connect(lambda: self._debounce.trigger(self.update))
         form.addRow("Roughness:", self.s_rough)
 
@@ -130,27 +124,23 @@ class FractalWorkbench(QtWidgets.QMainWindow):
         self.a_ds_rough = QtWidgets.QDoubleSpinBox()
         self.a_ds_rough.setRange(0.1, 2.0)
         self.a_ds_rough.setSingleStep(0.1)
-        self.a_ds_rough.setValue(1.0)
         self.a_ds_rough.valueChanged.connect(lambda: self._debounce.trigger(self.update))
         form.addRow("DS roughness:", self.a_ds_rough)
 
         self.a_oct = QtWidgets.QSpinBox()
         self.a_oct.setRange(1, 10)
-        self.a_oct.setValue(6)
         self.a_oct.valueChanged.connect(lambda: self._debounce.trigger(self.update))
         form.addRow("FBM octaves:", self.a_oct)
 
         self.a_pers = QtWidgets.QDoubleSpinBox()
         self.a_pers.setRange(0.1, 1.0)
         self.a_pers.setSingleStep(0.1)
-        self.a_pers.setValue(0.5)
         self.a_pers.valueChanged.connect(lambda: self._debounce.trigger(self.update))
         form.addRow("FBM persistence:", self.a_pers)
 
         self.a_lac = QtWidgets.QDoubleSpinBox()
         self.a_lac.setRange(1.0, 4.0)
         self.a_lac.setSingleStep(0.1)
-        self.a_lac.setValue(2.0)
         self.a_lac.valueChanged.connect(lambda: self._debounce.trigger(self.update))
         form.addRow("FBM lacunarity:", self.a_lac)
 
@@ -209,7 +199,7 @@ class FractalWorkbench(QtWidgets.QMainWindow):
         self.ax_ps.clear()
         F = np.fft.fftshift(np.fft.fft2(Z))
         P = np.abs(F)**2
-        cy, cx = [s//2 for s in P.shape]
+        cy, cx = [s // 2 for s in P.shape]
         y, x = np.indices(P.shape)
         r = np.sqrt((x - cx)**2 + (y - cy)**2).astype(int)
         tbin = np.bincount(r.ravel(), P.ravel())
@@ -252,8 +242,25 @@ class FractalWorkbench(QtWidgets.QMainWindow):
 
         QtWidgets.QMessageBox.information(self, 'Saved', f'Saved to:\n• {png}\n• {obj}')
 
-if __name__ == '__main__':
-    app = QtWidgets.QApplication(sys.argv)
-    w = FractalWorkbench()
-    w.show()
-    sys.exit(app.exec())
+    # ────────────────────────────────────────────────────────────────
+    # Rotation lock helpers: completely disable both Y‐ and Z‐spin
+    # ────────────────────────────────────────────────────────────────
+    def _install_rotation_lock(self) -> None:
+        """
+        Lock the elevation (rotation about the X-axis) so the user
+        cannot tilt the terrain up/down, but still allow full
+        azimuth (Y-axis) and roll (Z-axis) rotations.
+        """
+        # remember the initial elevation angle
+        self._home_elev = self.ax3d.elev
+
+        def _clamp_elev(*_):
+            # reset elevation to its original value, keep current azim
+            self.ax3d.view_init(elev=self._home_elev, azim=self.ax3d.azim)
+            self.canvas.draw_idle()
+
+        # after any drag or on release, snap elevation back
+        self.canvas.mpl_connect("motion_notify_event",
+                                lambda e: _clamp_elev() if e.inaxes is self.ax3d else None)
+        self.canvas.mpl_connect("button_release_event",
+                                lambda e: _clamp_elev())

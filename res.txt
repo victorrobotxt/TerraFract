@@ -667,13 +667,6 @@ terrafract/fractal_workbench.py:
 # File: terrafract/fractal_workbench.py
 # fractal_workbench.py – revamped UI/UX for TerraFract
 # -------------------------------------------------------------
-# Key improvements:
-#   • Basic vs Advanced controls via QTabWidget
-#   • One-click Presets (no fractal jargon)
-#   • Tooltips & readable labels
-#   • Debounced redraws (200 ms) for buttery sliders
-#   • Fixed export spacing, bigger canvas, consistent font
-
 import os
 import random
 import sys
@@ -684,6 +677,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
 from .heightmap_generators import generate_heightmap
+
 
 class _Debounce(QtCore.QObject):
     """Call a slot once after inactivity (bundles rapid signals)."""
@@ -701,6 +695,7 @@ class _Debounce(QtCore.QObject):
     def _emit(self):
         if self._slot:
             self._slot()
+
 
 class FractalWorkbench(QtWidgets.QMainWindow):
     """Simplified yet powerful terrain workbench."""
@@ -762,20 +757,21 @@ class FractalWorkbench(QtWidgets.QMainWindow):
         exp_bar.addWidget(exp_btn)
         vbox.addLayout(exp_bar)
 
+        # ── Rotation‐lock: keep the terrain “right side up”
+        self._install_rotation_lock()
+
     def _make_simple_tab(self):
         w = QtWidgets.QWidget()
         form = QtWidgets.QFormLayout(w)
 
         self.s_algo = QtWidgets.QComboBox()
         self.s_algo.addItems(["diamond-square", "fbm"])
-        self.s_algo.setToolTip("Fractal generator")
         self.s_algo.currentTextChanged.connect(lambda: self._debounce.trigger(self.update))
         form.addRow("Algorithm:", self.s_algo)
 
         self.s_rough = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.s_rough.setRange(1, 100)
         self.s_rough.setValue(30)
-        self.s_rough.setToolTip("Terrain roughness")
         self.s_rough.valueChanged.connect(lambda: self._debounce.trigger(self.update))
         form.addRow("Roughness:", self.s_rough)
 
@@ -796,27 +792,23 @@ class FractalWorkbench(QtWidgets.QMainWindow):
         self.a_ds_rough = QtWidgets.QDoubleSpinBox()
         self.a_ds_rough.setRange(0.1, 2.0)
         self.a_ds_rough.setSingleStep(0.1)
-        self.a_ds_rough.setValue(1.0)
         self.a_ds_rough.valueChanged.connect(lambda: self._debounce.trigger(self.update))
         form.addRow("DS roughness:", self.a_ds_rough)
 
         self.a_oct = QtWidgets.QSpinBox()
         self.a_oct.setRange(1, 10)
-        self.a_oct.setValue(6)
         self.a_oct.valueChanged.connect(lambda: self._debounce.trigger(self.update))
         form.addRow("FBM octaves:", self.a_oct)
 
         self.a_pers = QtWidgets.QDoubleSpinBox()
         self.a_pers.setRange(0.1, 1.0)
         self.a_pers.setSingleStep(0.1)
-        self.a_pers.setValue(0.5)
         self.a_pers.valueChanged.connect(lambda: self._debounce.trigger(self.update))
         form.addRow("FBM persistence:", self.a_pers)
 
         self.a_lac = QtWidgets.QDoubleSpinBox()
         self.a_lac.setRange(1.0, 4.0)
         self.a_lac.setSingleStep(0.1)
-        self.a_lac.setValue(2.0)
         self.a_lac.valueChanged.connect(lambda: self._debounce.trigger(self.update))
         form.addRow("FBM lacunarity:", self.a_lac)
 
@@ -918,11 +910,30 @@ class FractalWorkbench(QtWidgets.QMainWindow):
 
         QtWidgets.QMessageBox.information(self, 'Saved', f'Saved to:\n• {png}\n• {obj}')
 
-if __name__ == '__main__':
-    app = QtWidgets.QApplication(sys.argv)
-    w = FractalWorkbench()
-    w.show()
-    sys.exit(app.exec())
+    # ────────────────────────────────────────────────────────────────
+    # Rotation lock helpers: keep elevation in [-90°, +90°]
+    # ────────────────────────────────────────────────────────────────
+    def _install_rotation_lock(self) -> None:
+        self._rotating = False
+
+        def _clamp():
+            elev = max(-90, min(90, self.ax3d.elev))
+            if elev != self.ax3d.elev:
+                self.ax3d.view_init(elev, self.ax3d.azim)
+                self.canvas.draw_idle()
+
+        self.canvas.mpl_connect(
+            "button_press_event",
+            lambda e: setattr(self, "_rotating", e.inaxes is self.ax3d and e.button == 1)
+        )
+        self.canvas.mpl_connect(
+            "button_release_event",
+            lambda e: setattr(self, "_rotating", False) or _clamp()
+        )
+        self.canvas.mpl_connect(
+            "motion_notify_event",
+            lambda e: _clamp() if self._rotating else None
+        )
 
 ```
 
@@ -1978,19 +1989,19 @@ if __name__ == '__main__':
 
 terrafract/__main__.py:
 ```
+# File: terrafract/__main__.py
 #!/usr/bin/env python3
-"""Graphical launcher for TerraFract – three large, self-explaining tiles."""
+"""Graphical launcher for TerraFract – four side-by-side cards."""
 from __future__ import annotations
 import sys
 import os
 import io
-import tempfile
 import webbrowser
 
 import numpy as np
 from PySide6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog,
-    QDialog, QFormLayout, QComboBox, QSpinBox, QLabel, QHBoxLayout,
+    QApplication, QWidget, QHBoxLayout, QPushButton, QFileDialog,
+    QDialog, QFormLayout, QComboBox, QSpinBox, QLabel,
     QProgressBar, QMessageBox, QSizePolicy
 )
 from PySide6.QtCore import Qt, QThread, Signal
@@ -2000,28 +2011,40 @@ from terrafract.heightmap_generators import generate_heightmap
 from terrafract.fractal_workbench import FractalWorkbench
 from terrafract.stretch_goals import create_erosion_timelapse
 
-# ------------------------------- presets (shared with CLI)
+# ───────────────── presets ──────────────────────────────────────────
 PRESETS = {
     "Mountains": {"algorithm": "diamond-square", "roughness": 1.2},
-    "Hills":     {"algorithm": "fbm", "octaves": 4, "persistence": 0.6, "scale": 80},
+    "Hills":     {"algorithm": "fbm",            "octaves": 4, "persistence": 0.6, "scale": 80},
     "Islands":   {"algorithm": "diamond-square", "roughness": 0.8},
-    "Fjords":    {"algorithm": "fbm", "octaves": 6, "persistence": 0.4, "scale": 40},
+    "Fjords":    {"algorithm": "fbm",            "octaves": 6, "persistence": 0.4, "scale": 40},
 }
 
-ICONS = {"Quick": "🗺️", "Workbench": "🧑‍💻", "Timelapse": "⏱️"}
+ICONS = {
+    "Quick":     "🗺️",
+    "Workbench": "🧑‍💻",
+    "Timelapse": "⏱️",
+    "Help":      "❓",
+}
 
-# ------------------------------------------------------------------ helper
+DESCRIPTIONS = {
+    "Quick":     "One-click random map",
+    "Workbench": "Full param playground",
+    "Timelapse": "See erosion in motion",
+    "Help":      "Docs & source code",
+}
+
+
+# ───────────────── helper: embed a Matplotlib fig as QPixmap ─────────────────
 def _matplotlib_to_pixmap(fig) -> QPixmap:
-    """Render a Matplotlib figure into a QPixmap."""
     buf = io.BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight")
     buf.seek(0)
-    data = buf.getvalue()
     pix = QPixmap()
-    pix.loadFromData(data)
+    pix.loadFromData(buf.getvalue())
     return pix
 
-# ------------------------------------------------------------------ threads
+
+# ───────────────── Timelapse thread ─────────────────────────────────────────
 class _TimelapseThread(QThread):
     progress = Signal(int)   # 0–100
     finished = Signal(str)
@@ -2045,9 +2068,9 @@ class _TimelapseThread(QThread):
         self.progress.emit(100)
         self.finished.emit(self.out)
 
-# ------------------------------------------------------------------ dialogs
+
+# ───────────────── “Quick” dialog ───────────────────────────────────────────
 class _QuickDlg(QDialog):
-    """Quick Terrain dialog with live thumbnail preview."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Quick Terrain")
@@ -2055,13 +2078,11 @@ class _QuickDlg(QDialog):
 
         layout = QFormLayout(self)
 
-        # Preset picker
         self.cb = QComboBox()
         self.cb.addItems(PRESETS)
         self.cb.currentTextChanged.connect(self._refresh)
         layout.addRow("Preset:", self.cb)
 
-        # Seed & size
         self.seed = QSpinBox()
         self.seed.setRange(0, 9999)
         self.seed.valueChanged.connect(self._refresh)
@@ -2073,7 +2094,6 @@ class _QuickDlg(QDialog):
         self.sz.valueChanged.connect(self._refresh)
         layout.addRow("Size:", self.sz)
 
-        # Export path
         hl = QHBoxLayout()
         self.path_lbl = QLabel("terrain.png")
         self.path_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -2083,17 +2103,14 @@ class _QuickDlg(QDialog):
         hl.addWidget(btn)
         layout.addRow("Save to:", hl)
 
-        # Thumbnail
         self.thumb = QLabel(alignment=Qt.AlignCenter)
         self.thumb.setFixedSize(200, 200)
         layout.addRow(self.thumb)
 
-        # Generate button
         ok = QPushButton("Generate")
         ok.clicked.connect(self.accept)
         layout.addRow(ok)
 
-        # initial thumbnail
         self._refresh()
 
     def _pick(self):
@@ -2102,19 +2119,18 @@ class _QuickDlg(QDialog):
             self.path_lbl.setText(p)
 
     @property
-    def params(self) -> dict:
+    def params(self):
         p = PRESETS[self.cb.currentText()].copy()
         p.update(seed=self.seed.value(), size=self.sz.value())
         return p
 
     @property
-    def out_path(self) -> str:
+    def out_path(self):
         return self.path_lbl.text()
 
     def _refresh(self):
-        # generate a tiny preview
         p = self.params.copy()
-        p["size"] = min(p["size"], 64)  # small preview
+        p["size"] = min(p["size"], 64)
         fig = None
         try:
             Z = generate_heightmap(
@@ -2128,26 +2144,47 @@ class _QuickDlg(QDialog):
             ax.imshow(Z, cmap="terrain")
             ax.axis("off")
             pix = _matplotlib_to_pixmap(fig)
-            self.thumb.setPixmap(pix.scaled(200,200, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            self.thumb.setPixmap(pix.scaled(
+                200,200, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         finally:
             if fig:
                 import matplotlib.pyplot as plt
                 plt.close(fig)
 
-# ------------------------------------------------------------------ main win
+
+# ───────────────── Main window ───────────────────────────────────────────────
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("TerraFract")
-        self.resize(520, 380)
+        self.resize(720, 240)
 
-        v = QVBoxLayout(self)
-        v.setAlignment(Qt.AlignCenter)
-        for label in ("Quick", "Workbench", "Timelapse"):
-            btn = QPushButton(f"{ICONS[label]}  {label}")
-            btn.setMinimumHeight(70)
-            btn.clicked.connect(getattr(self, f"_on_{label.lower()}"))
-            v.addWidget(btn)
+        layout = QHBoxLayout(self)
+        layout.setSpacing(24)
+        layout.setAlignment(Qt.AlignCenter)
+
+        for label in ("Quick", "Workbench", "Timelapse", "Help"):
+            btn = self._make_card(label)
+            layout.addWidget(btn)
+
+    def _make_card(self, label: str) -> QPushButton:
+        text = f"{ICONS[label]}\n{label}\n{DESCRIPTIONS[label]}"
+        btn = QPushButton(text)
+        btn.setMinimumSize(160, 160)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setStyleSheet(
+            "QPushButton {"
+            "  border:1px solid #444;"
+            "  border-radius:8px;"
+            "  background:#252525;"
+            "  color:white;"
+            "}"
+            "QPushButton:hover {"
+            "  background:#333;"
+            "}"
+        )
+        btn.clicked.connect(getattr(self, f"_on_{label.lower()}"))
+        return btn
 
     def _on_quick(self):
         dlg = _QuickDlg(self)
@@ -2193,12 +2230,16 @@ class MainWindow(QWidget):
         self._thread.start()
         dlg.exec()
 
-# ------------------------------------------------------------------ bootstrap
+    def _on_help(self):
+        webbrowser.open("https://example.com")
+
+
 def main():
     app = QApplication(sys.argv)
     win = MainWindow()
     win.show()
     sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()
