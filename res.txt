@@ -301,6 +301,11 @@ terrain.png:
 file content
 ```
 
+timelapse.mp4:
+```
+file content
+```
+
 __main__.spec:
 ```
 # terrafract.spec
@@ -533,28 +538,30 @@ def synthesize_biomes(Z, smoothing_sigma=3,
 
 terrafract/cli.py:
 ```
-"""terrafract tweak – friendly one‑liner terrain generator.
+# File: terrafract/cli.py
+"""terrafract tweak – friendly one-liner terrain generator.
 
-Usage  (non‑interactive):
+Usage (non-interactive):
   terrafract tweak --preset mountains -o mountains.png
   terrafract tweak --algo fbm --size 129 --view biomes -o custom.png
 
-Or run with **no flags** for a chat‑style wizard.
+Or run with **no flags** for a chat-style wizard.
 """
 from __future__ import annotations
-import argparse, sys
+import argparse
+import sys
 from pathlib import Path
 import matplotlib.pyplot as plt
 
 from terrafract.heightmap_generators import generate_heightmap
 from terrafract.biome_texture import synthesize_biomes
 
-# Built‑in presets – zero jargon.
+# Built-in presets – zero jargon.
 PRESETS: dict[str, dict] = {
     "mountains": {"algo": "diamond-square", "roughness": 1.2},
-    "hills":     {"algo": "fbm", "octaves": 4, "persistence": 0.6, "scale": 80},
+    "hills":     {"algo": "fbm",            "octaves": 4, "persistence": 0.6, "scale": 80},
     "islands":   {"algo": "diamond-square", "roughness": 0.8},
-    "fjords":    {"algo": "fbm", "octaves": 6, "persistence": 0.4, "scale": 40},
+    "fjords":    {"algo": "fbm",            "octaves": 6, "persistence": 0.4, "scale": 40},
 }
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -563,16 +570,14 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Generate a terrain PNG (heightmap or biome overlay) in seconds.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--preset", choices=PRESETS, help="Use a ready‑made terrain recipe")
+    p.add_argument("--preset", choices=PRESETS, help="Use a ready-made terrain recipe")
     p.add_argument("--algo", "--algorithm", choices=["diamond-square", "fbm"],
                    help="Generator (ignored if --preset is given)")
-
     p.add_argument("--size", type=int, default=257, help="Map edge length (N×N)")
     p.add_argument("--seed", type=int, default=0, help="Random seed")
 
-    # Diamond‑Square only.
-    p.add_argument("--roughness", type=float, default=1.0,
-                   help="Diamond‑Square roughness")
+    # Diamond-Square only.
+    p.add_argument("--roughness", type=float, default=1.0, help="Diamond-Square roughness")
 
     # FBM only.
     p.add_argument("--octaves", type=int, default=6)
@@ -581,13 +586,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--scale", type=float, default=50.0)
 
     p.add_argument("--view", choices=["height", "biomes"], default="height",
-                   help="Render raw heightmap or biome‑colored map")
+                   help="Render raw heightmap or biome-colored map")
     p.add_argument("--output", "-o", type=Path, default=Path("terrain.png"),
                    help="Filename for the PNG")
     return p
 
 def _interactive() -> tuple[dict, Path]:
-    print("\n✨  Welcome to TerraFract quick‑tweak wizard ✨\n")
+    print("\n✨  Welcome to TerraFract quick-tweak wizard ✨\n")
     for i, name in enumerate(PRESETS, 1):
         print(f" {i}. {name.capitalize()}")
     print(f" {len(PRESETS)+1}. Custom settings")
@@ -628,7 +633,6 @@ def _render(cfg: dict, out_path: Path) -> None:
         plt.imsave(out_path, Z, cmap="terrain")
     print(f"\n✅  Saved {out_path}\n")
 
-# ---------------------------------------------------------------------
 def main(argv: list[str] | None = None) -> None:
     if argv is None:
         argv = sys.argv[1:]
@@ -653,24 +657,22 @@ def main(argv: list[str] | None = None) -> None:
 
     _render(cfg, out_path)
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     main()
+
 ```
 
 terrafract/fractal_workbench.py:
 ```
+# File: terrafract/fractal_workbench.py
 # fractal_workbench.py – revamped UI/UX for TerraFract
 # -------------------------------------------------------------
 # Key improvements:
-#   • Basic vs Advanced controls via a QTabWidget – newcomers land on a concise panel with just
-#     a few intuitive knobs, while power-users can still dive into the full parameter set.
-#   • One-click terrain **Presets** (Mountains, Hills, Islands, Fjords) so users don’t have to
-#     understand fractal jargon to get interesting results.
-#   • Helpful tooltips on every widget and more readable labels.
-#   • Debounced redraws (200 ms) for buttery sliders instead of a full recompute on every tick.
-#   • Export bug-fix – identical subplot spacing as the live preview so the surface and the power-
-#     spectrum are no longer squashed together in the PNG.
-#   • Minor polish: bigger canvas, consistent font, random-seed emoji 🔀.
+#   • Basic vs Advanced controls via QTabWidget
+#   • One-click Presets (no fractal jargon)
+#   • Tooltips & readable labels
+#   • Debounced redraws (200 ms) for buttery sliders
+#   • Fixed export spacing, bigger canvas, consistent font
 
 import os
 import random
@@ -683,9 +685,6 @@ from matplotlib.figure import Figure
 
 from .heightmap_generators import generate_heightmap
 
-# -------------------------------------------------------------
-# Debounce helper
-# -------------------------------------------------------------
 class _Debounce(QtCore.QObject):
     """Call a slot once after inactivity (bundles rapid signals)."""
 
@@ -703,9 +702,6 @@ class _Debounce(QtCore.QObject):
         if self._slot:
             self._slot()
 
-# -------------------------------------------------------------
-# Workbench
-# -------------------------------------------------------------
 class FractalWorkbench(QtWidgets.QMainWindow):
     """Simplified yet powerful terrain workbench."""
 
@@ -716,7 +712,6 @@ class FractalWorkbench(QtWidgets.QMainWindow):
         "Fjords":    {"algo": "fbm",           "octaves": 6, "persistence": 0.4, "scale": 40.0, "hydro_iters": 30},
     }
 
-    # ------------------------- init
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("TerraFract Workbench")
@@ -724,17 +719,15 @@ class FractalWorkbench(QtWidgets.QMainWindow):
         os.makedirs("exports", exist_ok=True)
 
         self._debounce = _Debounce(parent=self)
-
         self._build_ui()
         self.apply_preset("Mountains")
 
-    # ------------------------- UI layout
     def _build_ui(self):
         central = QtWidgets.QWidget()
         self.setCentralWidget(central)
         vbox = QtWidgets.QVBoxLayout(central)
 
-        # --- Preset bar
+        # Preset bar
         bar = QtWidgets.QHBoxLayout()
         bar.addWidget(QtWidgets.QLabel("Preset:"))
         self.preset = QtWidgets.QComboBox()
@@ -747,13 +740,13 @@ class FractalWorkbench(QtWidgets.QMainWindow):
         bar.addStretch()
         vbox.addLayout(bar)
 
-        # --- Tabs
+        # Tabs
         self.tabs = QtWidgets.QTabWidget()
         vbox.addWidget(self.tabs, 0)
         self._make_simple_tab()
         self._make_adv_tab()
 
-        # --- Canvas
+        # Canvas
         self.fig = Figure(figsize=(9, 6))
         self.ax3d = self.fig.add_subplot(121, projection='3d')
         self.ax_ps = self.fig.add_subplot(122)
@@ -761,7 +754,7 @@ class FractalWorkbench(QtWidgets.QMainWindow):
         self.canvas = FigureCanvas(self.fig)
         vbox.addWidget(self.canvas, 1)
 
-        # --- Export
+        # Export
         exp_bar = QtWidgets.QHBoxLayout()
         exp_bar.addStretch()
         exp_btn = QtWidgets.QPushButton("Export PNG/OBJ…")
@@ -769,7 +762,6 @@ class FractalWorkbench(QtWidgets.QMainWindow):
         exp_bar.addWidget(exp_btn)
         vbox.addLayout(exp_bar)
 
-    # ------------------------- Simple tab
     def _make_simple_tab(self):
         w = QtWidgets.QWidget()
         form = QtWidgets.QFormLayout(w)
@@ -794,7 +786,6 @@ class FractalWorkbench(QtWidgets.QMainWindow):
 
         self.tabs.addTab(w, "Simple")
 
-    # ------------------------- Advanced tab (subset of original params)
     def _make_adv_tab(self):
         w = QtWidgets.QScrollArea()
         w.setWidgetResizable(True)
@@ -831,10 +822,7 @@ class FractalWorkbench(QtWidgets.QMainWindow):
 
         self.tabs.addTab(w, "Advanced")
 
-    # ------------------------- Preset application
-    def apply_preset(self, name):
-        if name not in self.PRESETS:
-            return
+    def apply_preset(self, name: str):
         p = self.PRESETS[name]
         with QtCore.QSignalBlocker(self):
             self.s_algo.setCurrentText(p.get('algo', 'diamond-square'))
@@ -852,8 +840,7 @@ class FractalWorkbench(QtWidgets.QMainWindow):
     def random_seed(self):
         self.s_seed.setValue(random.randint(0, 9999))
 
-    # ------------------------- Parameter gather
-    def _params(self):
+    def _params(self) -> dict:
         algo = self.s_algo.currentText()
         seed = self.s_seed.value()
         rough = self.s_rough.value() / 50
@@ -872,7 +859,6 @@ class FractalWorkbench(QtWidgets.QMainWindow):
                 scale=60 / max(0.1, rough)
             )
 
-    # ------------------------- Update visuals
     def update(self):
         p = self._params()
         Z = generate_heightmap(**p)
@@ -881,23 +867,19 @@ class FractalWorkbench(QtWidgets.QMainWindow):
         # 3D surface
         X, Y = np.meshgrid(range(Z.shape[1]), range(Z.shape[0]))
         self.ax3d.clear()
-        self.ax3d.plot_surface(
-            X, Y, Z, cmap='terrain',
-            linewidth=0, antialiased=False
-        )
+        self.ax3d.plot_surface(X, Y, Z, cmap='terrain', linewidth=0, antialiased=False)
         self.ax3d.set_axis_off()
         self.ax3d.set_title('Terrain')
 
         # Power spectrum
         self.ax_ps.clear()
-        F  = np.fft.fftshift(np.fft.fft2(Z))
-        P  = np.abs(F)**2
+        F = np.fft.fftshift(np.fft.fft2(Z))
+        P = np.abs(F)**2
         cy, cx = [s//2 for s in P.shape]
-        y, x   = np.indices(P.shape)
-        r      = ((x-cx)**2 + (y-cy)**2)**0.5
-        r      = r.astype(int)
-        tbin   = np.bincount(r.ravel(), P.ravel())
-        nr     = np.bincount(r.ravel())
+        y, x = np.indices(P.shape)
+        r = np.sqrt((x - cx)**2 + (y - cy)**2).astype(int)
+        tbin = np.bincount(r.ravel(), P.ravel())
+        nr   = np.bincount(r.ravel())
         radial = tbin / np.maximum(nr, 1)
         freqs  = np.arange(len(radial))
         self.ax_ps.loglog(freqs[1:], radial[1:])
@@ -907,7 +889,6 @@ class FractalWorkbench(QtWidgets.QMainWindow):
 
         self.canvas.draw_idle()
 
-    # ------------------------- Export
     def export_dialog(self):
         dlg = QtWidgets.QFileDialog(self, 'Export', os.path.abspath('exports'))
         dlg.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
@@ -918,18 +899,15 @@ class FractalWorkbench(QtWidgets.QMainWindow):
         png = base + '.png'
         obj = base + '.obj'
 
-        # match spacing before save
         self.fig.subplots_adjust(wspace=0.35)
         self.fig.savefig(png, dpi=300)
 
         Z = self._Z
         h, w = Z.shape
         with open(obj, 'w') as f:
-            # vertices
             for i in range(h):
                 for j in range(w):
                     f.write(f"v {j} {i} {Z[i,j]:.4f}\n")
-            # faces
             for i in range(h-1):
                 for j in range(w-1):
                     v1 = i*w + j + 1
@@ -938,16 +916,11 @@ class FractalWorkbench(QtWidgets.QMainWindow):
                     v4 = v3 + 1
                     f.write(f"f {v1} {v2} {v4} {v3}\n")
 
-        QtWidgets.QMessageBox.information(
-            self,
-            'Saved',
-            f'Saved to:\n• {png}\n• {obj}'
-        )
+        QtWidgets.QMessageBox.information(self, 'Saved', f'Saved to:\n• {png}\n• {obj}')
 
-# ------------------------- Launch
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
-    w   = FractalWorkbench()
+    w = FractalWorkbench()
     w.show()
     sys.exit(app.exec())
 
@@ -2006,16 +1979,22 @@ if __name__ == '__main__':
 terrafract/__main__.py:
 ```
 #!/usr/bin/env python3
-"""Graphical launcher for TerraFract – three large, self‑explaining tiles."""
+"""Graphical launcher for TerraFract – three large, self-explaining tiles."""
 from __future__ import annotations
-import sys, os, tempfile, webbrowser
+import sys
+import os
+import io
+import tempfile
+import webbrowser
+
 import numpy as np
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog,
     QDialog, QFormLayout, QComboBox, QSpinBox, QLabel, QHBoxLayout,
-    QProgressBar, QMessageBox
+    QProgressBar, QMessageBox, QSizePolicy
 )
 from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QPixmap
 
 from terrafract.heightmap_generators import generate_heightmap
 from terrafract.fractal_workbench import FractalWorkbench
@@ -2029,59 +2008,131 @@ PRESETS = {
     "Fjords":    {"algorithm": "fbm", "octaves": 6, "persistence": 0.4, "scale": 40},
 }
 
-ICONS = {"Quick Terrain": "🗺️", "Workbench": "🧑‍💻", "Timelapse": "⏱️"}
+ICONS = {"Quick": "🗺️", "Workbench": "🧑‍💻", "Timelapse": "⏱️"}
+
+# ------------------------------------------------------------------ helper
+def _matplotlib_to_pixmap(fig) -> QPixmap:
+    """Render a Matplotlib figure into a QPixmap."""
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight")
+    buf.seek(0)
+    data = buf.getvalue()
+    pix = QPixmap()
+    pix.loadFromData(data)
+    return pix
 
 # ------------------------------------------------------------------ threads
 class _TimelapseThread(QThread):
-    progress = Signal(int)   # 0‑100
+    progress = Signal(int)   # 0–100
     finished = Signal(str)
 
     def __init__(self, Z, steps, interval, out_path):
         super().__init__()
-        self.Z, self.steps, self.interval, self.out = Z, steps, interval, out_path
+        self.Z = Z
+        self.steps = steps
+        self.interval = interval
+        self.out = out_path
 
     def run(self):
-        create_erosion_timelapse(self.Z, steps=self.steps, interval=self.interval,
-                                 therm_iters=1, hydro_iters=1, output_path=self.out)
+        create_erosion_timelapse(
+            self.Z,
+            steps=self.steps,
+            interval=self.interval,
+            therm_iters=1,
+            hydro_iters=1,
+            output_path=self.out
+        )
         self.progress.emit(100)
         self.finished.emit(self.out)
 
 # ------------------------------------------------------------------ dialogs
-class _QuickTerrainDlg(QDialog):
-    """Pick preset / seed / size –> PNG."""
+class _QuickDlg(QDialog):
+    """Quick Terrain dialog with live thumbnail preview."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Quick Terrain")
-        f = QFormLayout(self)
+        self.setMinimumWidth(400)
 
-        self.cb = QComboBox(); self.cb.addItems(PRESETS)
-        f.addRow("Preset:", self.cb)
-        self.seed = QSpinBox(); self.seed.setRange(0, 9999)
-        f.addRow("Seed:", self.seed)
-        self.size = QSpinBox(); self.size.setRange(33, 1025); self.size.setValue(257)
-        f.addRow("Size:", self.size)
+        layout = QFormLayout(self)
 
+        # Preset picker
+        self.cb = QComboBox()
+        self.cb.addItems(PRESETS)
+        self.cb.currentTextChanged.connect(self._refresh)
+        layout.addRow("Preset:", self.cb)
+
+        # Seed & size
+        self.seed = QSpinBox()
+        self.seed.setRange(0, 9999)
+        self.seed.valueChanged.connect(self._refresh)
+        layout.addRow("Seed:", self.seed)
+
+        self.sz = QSpinBox()
+        self.sz.setRange(33, 1025)
+        self.sz.setValue(257)
+        self.sz.valueChanged.connect(self._refresh)
+        layout.addRow("Size:", self.sz)
+
+        # Export path
+        hl = QHBoxLayout()
         self.path_lbl = QLabel("terrain.png")
-        choose = QPushButton("Change…"); choose.clicked.connect(self._pick)
-        hl = QHBoxLayout(); hl.addWidget(self.path_lbl); hl.addWidget(choose)
-        f.addRow("Export:", hl)
+        self.path_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        btn = QPushButton("Change…")
+        btn.clicked.connect(self._pick)
+        hl.addWidget(self.path_lbl)
+        hl.addWidget(btn)
+        layout.addRow("Save to:", hl)
 
-        ok = QPushButton("Generate"); ok.clicked.connect(self.accept)
-        f.addRow(ok)
+        # Thumbnail
+        self.thumb = QLabel(alignment=Qt.AlignCenter)
+        self.thumb.setFixedSize(200, 200)
+        layout.addRow(self.thumb)
+
+        # Generate button
+        ok = QPushButton("Generate")
+        ok.clicked.connect(self.accept)
+        layout.addRow(ok)
+
+        # initial thumbnail
+        self._refresh()
 
     def _pick(self):
         p, _ = QFileDialog.getSaveFileName(self, "Save PNG", "terrain.png", "PNG (*.png)")
-        if p: self.path_lbl.setText(p)
+        if p:
+            self.path_lbl.setText(p)
 
-    # helpers
     @property
-    def params(self):
+    def params(self) -> dict:
         p = PRESETS[self.cb.currentText()].copy()
-        p.update(size=self.size.value(), seed=self.seed.value())
+        p.update(seed=self.seed.value(), size=self.sz.value())
         return p
+
     @property
-    def out_path(self):
+    def out_path(self) -> str:
         return self.path_lbl.text()
+
+    def _refresh(self):
+        # generate a tiny preview
+        p = self.params.copy()
+        p["size"] = min(p["size"], 64)  # small preview
+        fig = None
+        try:
+            Z = generate_heightmap(
+                algorithm=p["algorithm"],
+                size=p["size"],
+                seed=p["seed"],
+                **{k: v for k, v in p.items() if k not in ("algorithm", "size", "seed")}
+            )
+            import matplotlib.pyplot as plt
+            fig, ax = plt.subplots(figsize=(2,2), dpi=100)
+            ax.imshow(Z, cmap="terrain")
+            ax.axis("off")
+            pix = _matplotlib_to_pixmap(fig)
+            self.thumb.setPixmap(pix.scaled(200,200, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        finally:
+            if fig:
+                import matplotlib.pyplot as plt
+                plt.close(fig)
 
 # ------------------------------------------------------------------ main win
 class MainWindow(QWidget):
@@ -2089,42 +2140,58 @@ class MainWindow(QWidget):
         super().__init__()
         self.setWindowTitle("TerraFract")
         self.resize(520, 380)
-        v = QVBoxLayout(self); v.setAlignment(Qt.AlignCenter)
 
-        for label in ("Quick Terrain", "Workbench", "Timelapse"):
+        v = QVBoxLayout(self)
+        v.setAlignment(Qt.AlignCenter)
+        for label in ("Quick", "Workbench", "Timelapse"):
             btn = QPushButton(f"{ICONS[label]}  {label}")
             btn.setMinimumHeight(70)
-            btn.clicked.connect(getattr(self, f"_on_{label.split()[0].lower()}"))
+            btn.clicked.connect(getattr(self, f"_on_{label.lower()}"))
             v.addWidget(btn)
 
-    # ---------- tile callbacks
-    def _on_quick(self):  # Quick Terrain
-        dlg = _QuickTerrainDlg(self)
-        if dlg.exec() != QDialog.Accepted: return
+    def _on_quick(self):
+        dlg = _QuickDlg(self)
+        if dlg.exec() != QDialog.Accepted:
+            return
         Z = generate_heightmap(**dlg.params)
         import matplotlib.pyplot as plt
         plt.imsave(dlg.out_path, Z, cmap="terrain")
-        if QMessageBox.question(self, "Saved", f"Saved to {dlg.out_path}\nOpen it?",
-                                 QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
+        if QMessageBox.question(
+            self, "Saved",
+            f"Saved to {dlg.out_path}\nOpen it?",
+            QMessageBox.Yes | QMessageBox.No
+        ) == QMessageBox.Yes:
             webbrowser.open(dlg.out_path)
 
     def _on_workbench(self):
-        self._wb = FractalWorkbench(); self._wb.show()  # keep ref
+        self._wb = FractalWorkbench()
+        self._wb.show()
 
     def _on_timelapse(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Save timelapse", "timelapse.mp4", "MP4 (*.mp4)")
-        if not path: return
-        Z = np.random.rand(128,128)
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save timelapse", "timelapse.mp4", "MP4 (*.mp4)"
+        )
+        if not path:
+            return
+
+        Z = np.random.rand(128, 128)
         self._thread = _TimelapseThread(Z, steps=60, interval=100, out_path=path)
 
-        dlg = QDialog(self); dlg.setWindowTitle("Rendering timelapse…")
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Rendering timelapse…")
         l = QVBoxLayout(dlg)
-        bar = QProgressBar(); bar.setRange(0,100); l.addWidget(bar)
-        cancel = QPushButton("Cancel"); l.addWidget(cancel)
+        bar = QProgressBar()
+        bar.setRange(0, 100)
+        l.addWidget(bar)
+        cancel = QPushButton("Cancel")
+        l.addWidget(cancel)
         cancel.clicked.connect(self._thread.terminate)
+
         self._thread.progress.connect(bar.setValue)
         self._thread.finished.connect(lambda p: (dlg.accept(), webbrowser.open(p)))
-        self._thread.start(); dlg.exec()
+
+        self._thread.start()
+        dlg.exec()
 
 # ------------------------------------------------------------------ bootstrap
 def main():
@@ -2135,6 +2202,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 ```
 
 tests/test_terrafract.py:

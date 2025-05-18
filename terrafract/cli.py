@@ -1,25 +1,27 @@
-"""terrafract tweak – friendly one‑liner terrain generator.
+# File: terrafract/cli.py
+"""terrafract tweak – friendly one-liner terrain generator.
 
-Usage  (non‑interactive):
+Usage (non-interactive):
   terrafract tweak --preset mountains -o mountains.png
   terrafract tweak --algo fbm --size 129 --view biomes -o custom.png
 
-Or run with **no flags** for a chat‑style wizard.
+Or run with **no flags** for a chat-style wizard.
 """
 from __future__ import annotations
-import argparse, sys
+import argparse
+import sys
 from pathlib import Path
 import matplotlib.pyplot as plt
 
 from terrafract.heightmap_generators import generate_heightmap
 from terrafract.biome_texture import synthesize_biomes
 
-# Built‑in presets – zero jargon.
+# Built-in presets – zero jargon.
 PRESETS: dict[str, dict] = {
     "mountains": {"algo": "diamond-square", "roughness": 1.2},
-    "hills":     {"algo": "fbm", "octaves": 4, "persistence": 0.6, "scale": 80},
+    "hills":     {"algo": "fbm",            "octaves": 4, "persistence": 0.6, "scale": 80},
     "islands":   {"algo": "diamond-square", "roughness": 0.8},
-    "fjords":    {"algo": "fbm", "octaves": 6, "persistence": 0.4, "scale": 40},
+    "fjords":    {"algo": "fbm",            "octaves": 6, "persistence": 0.4, "scale": 40},
 }
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -28,16 +30,14 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Generate a terrain PNG (heightmap or biome overlay) in seconds.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--preset", choices=PRESETS, help="Use a ready‑made terrain recipe")
+    p.add_argument("--preset", choices=PRESETS, help="Use a ready-made terrain recipe")
     p.add_argument("--algo", "--algorithm", choices=["diamond-square", "fbm"],
                    help="Generator (ignored if --preset is given)")
-
     p.add_argument("--size", type=int, default=257, help="Map edge length (N×N)")
     p.add_argument("--seed", type=int, default=0, help="Random seed")
 
-    # Diamond‑Square only.
-    p.add_argument("--roughness", type=float, default=1.0,
-                   help="Diamond‑Square roughness")
+    # Diamond-Square only.
+    p.add_argument("--roughness", type=float, default=1.0, help="Diamond-Square roughness")
 
     # FBM only.
     p.add_argument("--octaves", type=int, default=6)
@@ -46,13 +46,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--scale", type=float, default=50.0)
 
     p.add_argument("--view", choices=["height", "biomes"], default="height",
-                   help="Render raw heightmap or biome‑colored map")
+                   help="Render raw heightmap or biome-colored map")
     p.add_argument("--output", "-o", type=Path, default=Path("terrain.png"),
                    help="Filename for the PNG")
     return p
 
 def _interactive() -> tuple[dict, Path]:
-    print("\n✨  Welcome to TerraFract quick‑tweak wizard ✨\n")
+    print("\n✨  Welcome to TerraFract quick-tweak wizard ✨\n")
     for i, name in enumerate(PRESETS, 1):
         print(f" {i}. {name.capitalize()}")
     print(f" {len(PRESETS)+1}. Custom settings")
@@ -93,7 +93,6 @@ def _render(cfg: dict, out_path: Path) -> None:
         plt.imsave(out_path, Z, cmap="terrain")
     print(f"\n✅  Saved {out_path}\n")
 
-# ---------------------------------------------------------------------
 def main(argv: list[str] | None = None) -> None:
     if argv is None:
         argv = sys.argv[1:]
@@ -118,5 +117,5 @@ def main(argv: list[str] | None = None) -> None:
 
     _render(cfg, out_path)
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     main()

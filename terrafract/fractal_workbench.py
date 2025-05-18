@@ -1,15 +1,12 @@
+# File: terrafract/fractal_workbench.py
 # fractal_workbench.py – revamped UI/UX for TerraFract
 # -------------------------------------------------------------
 # Key improvements:
-#   • Basic vs Advanced controls via a QTabWidget – newcomers land on a concise panel with just
-#     a few intuitive knobs, while power-users can still dive into the full parameter set.
-#   • One-click terrain **Presets** (Mountains, Hills, Islands, Fjords) so users don’t have to
-#     understand fractal jargon to get interesting results.
-#   • Helpful tooltips on every widget and more readable labels.
-#   • Debounced redraws (200 ms) for buttery sliders instead of a full recompute on every tick.
-#   • Export bug-fix – identical subplot spacing as the live preview so the surface and the power-
-#     spectrum are no longer squashed together in the PNG.
-#   • Minor polish: bigger canvas, consistent font, random-seed emoji 🔀.
+#   • Basic vs Advanced controls via QTabWidget
+#   • One-click Presets (no fractal jargon)
+#   • Tooltips & readable labels
+#   • Debounced redraws (200 ms) for buttery sliders
+#   • Fixed export spacing, bigger canvas, consistent font
 
 import os
 import random
@@ -22,9 +19,6 @@ from matplotlib.figure import Figure
 
 from .heightmap_generators import generate_heightmap
 
-# -------------------------------------------------------------
-# Debounce helper
-# -------------------------------------------------------------
 class _Debounce(QtCore.QObject):
     """Call a slot once after inactivity (bundles rapid signals)."""
 
@@ -42,9 +36,6 @@ class _Debounce(QtCore.QObject):
         if self._slot:
             self._slot()
 
-# -------------------------------------------------------------
-# Workbench
-# -------------------------------------------------------------
 class FractalWorkbench(QtWidgets.QMainWindow):
     """Simplified yet powerful terrain workbench."""
 
@@ -55,7 +46,6 @@ class FractalWorkbench(QtWidgets.QMainWindow):
         "Fjords":    {"algo": "fbm",           "octaves": 6, "persistence": 0.4, "scale": 40.0, "hydro_iters": 30},
     }
 
-    # ------------------------- init
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("TerraFract Workbench")
@@ -63,17 +53,15 @@ class FractalWorkbench(QtWidgets.QMainWindow):
         os.makedirs("exports", exist_ok=True)
 
         self._debounce = _Debounce(parent=self)
-
         self._build_ui()
         self.apply_preset("Mountains")
 
-    # ------------------------- UI layout
     def _build_ui(self):
         central = QtWidgets.QWidget()
         self.setCentralWidget(central)
         vbox = QtWidgets.QVBoxLayout(central)
 
-        # --- Preset bar
+        # Preset bar
         bar = QtWidgets.QHBoxLayout()
         bar.addWidget(QtWidgets.QLabel("Preset:"))
         self.preset = QtWidgets.QComboBox()
@@ -86,13 +74,13 @@ class FractalWorkbench(QtWidgets.QMainWindow):
         bar.addStretch()
         vbox.addLayout(bar)
 
-        # --- Tabs
+        # Tabs
         self.tabs = QtWidgets.QTabWidget()
         vbox.addWidget(self.tabs, 0)
         self._make_simple_tab()
         self._make_adv_tab()
 
-        # --- Canvas
+        # Canvas
         self.fig = Figure(figsize=(9, 6))
         self.ax3d = self.fig.add_subplot(121, projection='3d')
         self.ax_ps = self.fig.add_subplot(122)
@@ -100,7 +88,7 @@ class FractalWorkbench(QtWidgets.QMainWindow):
         self.canvas = FigureCanvas(self.fig)
         vbox.addWidget(self.canvas, 1)
 
-        # --- Export
+        # Export
         exp_bar = QtWidgets.QHBoxLayout()
         exp_bar.addStretch()
         exp_btn = QtWidgets.QPushButton("Export PNG/OBJ…")
@@ -108,7 +96,6 @@ class FractalWorkbench(QtWidgets.QMainWindow):
         exp_bar.addWidget(exp_btn)
         vbox.addLayout(exp_bar)
 
-    # ------------------------- Simple tab
     def _make_simple_tab(self):
         w = QtWidgets.QWidget()
         form = QtWidgets.QFormLayout(w)
@@ -133,7 +120,6 @@ class FractalWorkbench(QtWidgets.QMainWindow):
 
         self.tabs.addTab(w, "Simple")
 
-    # ------------------------- Advanced tab (subset of original params)
     def _make_adv_tab(self):
         w = QtWidgets.QScrollArea()
         w.setWidgetResizable(True)
@@ -170,10 +156,7 @@ class FractalWorkbench(QtWidgets.QMainWindow):
 
         self.tabs.addTab(w, "Advanced")
 
-    # ------------------------- Preset application
-    def apply_preset(self, name):
-        if name not in self.PRESETS:
-            return
+    def apply_preset(self, name: str):
         p = self.PRESETS[name]
         with QtCore.QSignalBlocker(self):
             self.s_algo.setCurrentText(p.get('algo', 'diamond-square'))
@@ -191,8 +174,7 @@ class FractalWorkbench(QtWidgets.QMainWindow):
     def random_seed(self):
         self.s_seed.setValue(random.randint(0, 9999))
 
-    # ------------------------- Parameter gather
-    def _params(self):
+    def _params(self) -> dict:
         algo = self.s_algo.currentText()
         seed = self.s_seed.value()
         rough = self.s_rough.value() / 50
@@ -211,7 +193,6 @@ class FractalWorkbench(QtWidgets.QMainWindow):
                 scale=60 / max(0.1, rough)
             )
 
-    # ------------------------- Update visuals
     def update(self):
         p = self._params()
         Z = generate_heightmap(**p)
@@ -220,23 +201,19 @@ class FractalWorkbench(QtWidgets.QMainWindow):
         # 3D surface
         X, Y = np.meshgrid(range(Z.shape[1]), range(Z.shape[0]))
         self.ax3d.clear()
-        self.ax3d.plot_surface(
-            X, Y, Z, cmap='terrain',
-            linewidth=0, antialiased=False
-        )
+        self.ax3d.plot_surface(X, Y, Z, cmap='terrain', linewidth=0, antialiased=False)
         self.ax3d.set_axis_off()
         self.ax3d.set_title('Terrain')
 
         # Power spectrum
         self.ax_ps.clear()
-        F  = np.fft.fftshift(np.fft.fft2(Z))
-        P  = np.abs(F)**2
+        F = np.fft.fftshift(np.fft.fft2(Z))
+        P = np.abs(F)**2
         cy, cx = [s//2 for s in P.shape]
-        y, x   = np.indices(P.shape)
-        r      = ((x-cx)**2 + (y-cy)**2)**0.5
-        r      = r.astype(int)
-        tbin   = np.bincount(r.ravel(), P.ravel())
-        nr     = np.bincount(r.ravel())
+        y, x = np.indices(P.shape)
+        r = np.sqrt((x - cx)**2 + (y - cy)**2).astype(int)
+        tbin = np.bincount(r.ravel(), P.ravel())
+        nr   = np.bincount(r.ravel())
         radial = tbin / np.maximum(nr, 1)
         freqs  = np.arange(len(radial))
         self.ax_ps.loglog(freqs[1:], radial[1:])
@@ -246,7 +223,6 @@ class FractalWorkbench(QtWidgets.QMainWindow):
 
         self.canvas.draw_idle()
 
-    # ------------------------- Export
     def export_dialog(self):
         dlg = QtWidgets.QFileDialog(self, 'Export', os.path.abspath('exports'))
         dlg.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
@@ -257,18 +233,15 @@ class FractalWorkbench(QtWidgets.QMainWindow):
         png = base + '.png'
         obj = base + '.obj'
 
-        # match spacing before save
         self.fig.subplots_adjust(wspace=0.35)
         self.fig.savefig(png, dpi=300)
 
         Z = self._Z
         h, w = Z.shape
         with open(obj, 'w') as f:
-            # vertices
             for i in range(h):
                 for j in range(w):
                     f.write(f"v {j} {i} {Z[i,j]:.4f}\n")
-            # faces
             for i in range(h-1):
                 for j in range(w-1):
                     v1 = i*w + j + 1
@@ -277,15 +250,10 @@ class FractalWorkbench(QtWidgets.QMainWindow):
                     v4 = v3 + 1
                     f.write(f"f {v1} {v2} {v4} {v3}\n")
 
-        QtWidgets.QMessageBox.information(
-            self,
-            'Saved',
-            f'Saved to:\n• {png}\n• {obj}'
-        )
+        QtWidgets.QMessageBox.information(self, 'Saved', f'Saved to:\n• {png}\n• {obj}')
 
-# ------------------------- Launch
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
-    w   = FractalWorkbench()
+    w = FractalWorkbench()
     w.show()
     sys.exit(app.exec())
