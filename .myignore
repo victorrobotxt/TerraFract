@@ -10,3 +10,4 @@ venv/
 
 *terrafract/dist/TerraFract/*
 dist/TerraFract/_internal
+.git/

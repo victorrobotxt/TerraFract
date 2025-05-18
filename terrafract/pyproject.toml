@@ -21,3 +21,6 @@ dependencies = [
 [project.optional-dependencies]
 gui = ["PySide6"]
 analysis = ["pytest", "pytest-cov", "ruff"]
+
+[project.scripts]
+terrafract = "terrafract.cli:main"

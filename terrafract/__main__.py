@@ -1,105 +1,125 @@
 #!/usr/bin/env python3
-import sys
-import subprocess
-import os
-import tempfile
-import webbrowser
-from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QMessageBox
+"""Graphical launcher for TerraFract – three large, self‑explaining tiles."""
+from __future__ import annotations
+import sys, os, tempfile, webbrowser
+import numpy as np
+from PySide6.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog,
+    QDialog, QFormLayout, QComboBox, QSpinBox, QLabel, QHBoxLayout,
+    QProgressBar, QMessageBox
+)
+from PySide6.QtCore import Qt, QThread, Signal
+
+from terrafract.heightmap_generators import generate_heightmap
 from terrafract.fractal_workbench import FractalWorkbench
 from terrafract.stretch_goals import create_erosion_timelapse
-import numpy as np
 
-from PySide6.QtCore import QThread, Signal
+# ------------------------------- presets (shared with CLI)
+PRESETS = {
+    "Mountains": {"algorithm": "diamond-square", "roughness": 1.2},
+    "Hills":     {"algorithm": "fbm", "octaves": 4, "persistence": 0.6, "scale": 80},
+    "Islands":   {"algorithm": "diamond-square", "roughness": 0.8},
+    "Fjords":    {"algorithm": "fbm", "octaves": 6, "persistence": 0.4, "scale": 40},
+}
 
-class TimelapseThread(QThread):
-    """
-    Runs create_erosion_timelapse in a worker thread so the GUI stays
-    responsive.
-    """
-    finished = Signal(str)  # will emit the path of the saved video
+ICONS = {"Quick Terrain": "🗺️", "Workbench": "🧑‍💻", "Timelapse": "⏱️"}
 
-    def __init__(self, Z_init, steps, therm_iters, hydro_iters, interval, output_path):
+# ------------------------------------------------------------------ threads
+class _TimelapseThread(QThread):
+    progress = Signal(int)   # 0‑100
+    finished = Signal(str)
+
+    def __init__(self, Z, steps, interval, out_path):
         super().__init__()
-        self.Z_init = Z_init
-        self.steps = steps
-        self.therm_iters = therm_iters
-        self.hydro_iters = hydro_iters
-        self.interval = interval
-        self.output_path = output_path
+        self.Z, self.steps, self.interval, self.out = Z, steps, interval, out_path
 
     def run(self):
-        # This runs in the background!
-        create_erosion_timelapse(
-            self.Z_init,
-            steps=self.steps,
-            therm_iters=self.therm_iters,
-            hydro_iters=self.hydro_iters,
-            interval=self.interval,
-            output_path=self.output_path
-        )
-        # Notify the main thread when done
-        self.finished.emit(self.output_path)
+        create_erosion_timelapse(self.Z, steps=self.steps, interval=self.interval,
+                                 therm_iters=1, hydro_iters=1, output_path=self.out)
+        self.progress.emit(100)
+        self.finished.emit(self.out)
 
+# ------------------------------------------------------------------ dialogs
+class _QuickTerrainDlg(QDialog):
+    """Pick preset / seed / size –> PNG."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Quick Terrain")
+        f = QFormLayout(self)
+
+        self.cb = QComboBox(); self.cb.addItems(PRESETS)
+        f.addRow("Preset:", self.cb)
+        self.seed = QSpinBox(); self.seed.setRange(0, 9999)
+        f.addRow("Seed:", self.seed)
+        self.size = QSpinBox(); self.size.setRange(33, 1025); self.size.setValue(257)
+        f.addRow("Size:", self.size)
+
+        self.path_lbl = QLabel("terrain.png")
+        choose = QPushButton("Change…"); choose.clicked.connect(self._pick)
+        hl = QHBoxLayout(); hl.addWidget(self.path_lbl); hl.addWidget(choose)
+        f.addRow("Export:", hl)
+
+        ok = QPushButton("Generate"); ok.clicked.connect(self.accept)
+        f.addRow(ok)
+
+    def _pick(self):
+        p, _ = QFileDialog.getSaveFileName(self, "Save PNG", "terrain.png", "PNG (*.png)")
+        if p: self.path_lbl.setText(p)
+
+    # helpers
+    @property
+    def params(self):
+        p = PRESETS[self.cb.currentText()].copy()
+        p.update(size=self.size.value(), seed=self.seed.value())
+        return p
+    @property
+    def out_path(self):
+        return self.path_lbl.text()
+
+# ------------------------------------------------------------------ main win
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("TerraFract Launcher")
-        self.workbenches = []  # keep Python refs so they're not GC'd
+        self.setWindowTitle("TerraFract")
+        self.resize(520, 380)
+        v = QVBoxLayout(self); v.setAlignment(Qt.AlignCenter)
 
-        layout = QVBoxLayout(self)
+        for label in ("Quick Terrain", "Workbench", "Timelapse"):
+            btn = QPushButton(f"{ICONS[label]}  {label}")
+            btn.setMinimumHeight(70)
+            btn.clicked.connect(getattr(self, f"_on_{label.split()[0].lower()}"))
+            v.addWidget(btn)
 
-        open_btn = QPushButton("Open Workbench")
-        open_btn.clicked.connect(self.open_workbench)
-        layout.addWidget(open_btn)
+    # ---------- tile callbacks
+    def _on_quick(self):  # Quick Terrain
+        dlg = _QuickTerrainDlg(self)
+        if dlg.exec() != QDialog.Accepted: return
+        Z = generate_heightmap(**dlg.params)
+        import matplotlib.pyplot as plt
+        plt.imsave(dlg.out_path, Z, cmap="terrain")
+        if QMessageBox.question(self, "Saved", f"Saved to {dlg.out_path}\nOpen it?",
+                                 QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
+            webbrowser.open(dlg.out_path)
 
-        tweak_btn = QPushButton("Quick Tweak (CLI)")
-        tweak_btn.clicked.connect(self.quick_tweak)
-        layout.addWidget(tweak_btn)
+    def _on_workbench(self):
+        self._wb = FractalWorkbench(); self._wb.show()  # keep ref
 
-        eros_btn = QPushButton("Erosion Time-lapse")
-        eros_btn.clicked.connect(self.run_timelapse)
-        layout.addWidget(eros_btn)
+    def _on_timelapse(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Save timelapse", "timelapse.mp4", "MP4 (*.mp4)")
+        if not path: return
+        Z = np.random.rand(128,128)
+        self._thread = _TimelapseThread(Z, steps=60, interval=100, out_path=path)
 
-    def open_workbench(self):
-        fb = FractalWorkbench(parent=self)
-        self.workbenches.append(fb)
-        fb.show()
+        dlg = QDialog(self); dlg.setWindowTitle("Rendering timelapse…")
+        l = QVBoxLayout(dlg)
+        bar = QProgressBar(); bar.setRange(0,100); l.addWidget(bar)
+        cancel = QPushButton("Cancel"); l.addWidget(cancel)
+        cancel.clicked.connect(self._thread.terminate)
+        self._thread.progress.connect(bar.setValue)
+        self._thread.finished.connect(lambda p: (dlg.accept(), webbrowser.open(p)))
+        self._thread.start(); dlg.exec()
 
-    def quick_tweak(self):
-        subprocess.Popen(
-            [sys.executable, "-m", "terrafract.tweak"],
-            creationflags=(
-                subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
-            )
-        )
-        
-    def run_timelapse(self):
-        path = os.path.join(tempfile.gettempdir(), "timelapse.mp4")
-        Z_init = np.random.rand(128, 128)
-
-        # Create and start the worker thread
-        self._timelapse_thread = TimelapseThread(
-            Z_init,
-            steps=60,
-            therm_iters=1,
-            hydro_iters=1,
-            interval=100,
-            output_path=path
-        )
-        self._timelapse_thread.finished.connect(self.on_timelapse_done)
-        self._timelapse_thread.start()
-
-        # Optionally give the user some feedback right away:
-        QMessageBox.information(
-            self,
-            "Rendering…",
-            "Your erosion timelapse is being generated in the background. "
-            "I'll open it when it's ready 😊"
-        )
-
-    def on_timelapse_done(self, path):
-        webbrowser.open(path)
-
+# ------------------------------------------------------------------ bootstrap
 def main():
     app = QApplication(sys.argv)
     win = MainWindow()
