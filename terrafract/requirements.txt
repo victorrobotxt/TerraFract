@@ -1,0 +1,11 @@
+numpy
+scipy
+matplotlib
+noise
+PySide6
+shapely
+scikit-image
+websockets
+numba
+scikit-learn
+pyinstaller

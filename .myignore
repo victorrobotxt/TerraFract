@@ -1,0 +1,12 @@
+__pycache__/
+.pytest_cache/
+.myignore
+tornado.py
+*exports/
+
+.venv/
+venv/
+*build/*
+
+*terrafract/dist/TerraFract/*
+dist/TerraFract/_internal

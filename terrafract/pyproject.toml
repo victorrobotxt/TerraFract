@@ -1,0 +1,23 @@
+[project]
+name = "terrafract"
+version = "1.0.0"
+description = "Procedural terrain generation toolkit"
+authors = [
+  { name = "Vic", email = "you@example.com" }
+]
+dependencies = [
+  "numpy",
+  "scipy",
+  "matplotlib",
+  "noise",
+  "shapely",
+  "geopandas",
+  "scikit-image",
+  "gdal",
+  "websockets",
+  "numba",
+]
+
+[project.optional-dependencies]
+gui = ["PySide6"]
+analysis = ["pytest", "pytest-cov", "ruff"]

@@ -1,0 +1,2064 @@
+Here is the code so far:
+
+comparative_study.ipynb:
+```
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "e946eaa5",
+   "metadata": {},
+   "source": [
+    "# Comparative Study of Terrain Generators\n",
+    "This notebook generates and compares terrain heightmaps produced by three different fractal algorithms: Diamond-Square (DS), Fractal Brownian Motion (FBM), and a Hybrid mix of both. We keep the mean elevation constant across maps, then analyze their elevation distributions, power spectra, and estimate fractal (box-counting) dimensions."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "021762e4",
+   "metadata": {},
+   "source": [
+    "## 1. Imports and Helper Functions"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "6f6ec68e",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import numpy as np\n",
+    "import matplotlib.pyplot as plt\n",
+    "from heightmap_generators import generate_heightmap\n",
+    "from scipy import fftpack\n",
+    "\n",
+    "def equalize_mean(Z, target_mean=0.5):\n",
+    "    Zn = (Z - Z.min()) / (Z.max() - Z.min())\n",
+    "    curr_mean = Zn.mean()\n",
+    "    Z_eq = np.clip(Zn + (target_mean - curr_mean), 0, 1)\n",
+    "    return Z_eq\n",
+    "\n",
+    "def radial_power_spectrum(Z):\n",
+    "    F = fftpack.fftshift(fftpack.fft2(Z))\n",
+    "    P = np.abs(F)**2\n",
+    "    ny, nx = Z.shape\n",
+    "    cy, cx = ny // 2, nx // 2\n",
+    "    y, x = np.indices(P.shape)\n",
+    "    r = np.hypot(x - cx, y - cy).astype(int)\n",
+    "    tbin = np.bincount(r.ravel(), P.ravel())\n",
+    "    nr = np.bincount(r.ravel())\n",
+    "    radial = tbin / np.maximum(nr, 1)\n",
+    "    freqs = np.arange(len(radial))\n",
+    "    return freqs[1:], radial[1:]\n",
+    "\n",
+    "def box_count_dim(Z, sizes=None):\n",
+    "    bin_map = Z > Z.mean()\n",
+    "    n = Z.shape[0]\n",
+    "    if sizes is None:\n",
+    "        max_exp = int(np.log2(n))\n",
+    "        sizes = [2**i for i in range(1, max_exp)]\n",
+    "    counts = []\n",
+    "    for size in sizes:\n",
+    "        num = 0\n",
+    "        grid_count = n // size\n",
+    "        for i in range(grid_count):\n",
+    "            for j in range(grid_count):\n",
+    "                if bin_map[i*size:(i+1)*size, j*size:(j+1)*size].any():\n",
+    "                    num += 1\n",
+    "        counts.append(num)\n",
+    "    logs = np.log(counts)\n",
+    "    logs_inv = np.log(1/np.array(sizes))\n",
+    "    slope, _ = np.polyfit(logs_inv, logs, 1)\n",
+    "    return slope\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "b860cea2",
+   "metadata": {},
+   "source": [
+    "## 2. Generate and Equalize Terrains"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "93c7e513",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Parameters\n",
+    "size = 129\n",
+    "seed = 42\n",
+    "\n",
+    "# Generate heightmaps\n",
+    "Z_ds = generate_heightmap('diamond-square', size=size, seed=seed, roughness=1.0)\n",
+    "Z_fbm = generate_heightmap('fbm', size=size, seed=seed, octaves=6, persistence=0.5, lacunarity=2.0, scale=50.0)\n",
+    "# Hybrid: average of DS and FBM\n",
+    "Z_hyb = 0.5 * Z_ds + 0.5 * Z_fbm\n",
+    "\n",
+    "# Equalize mean elevation\n",
+    "Z_ds_eq = equalize_mean(Z_ds)\n",
+    "Z_fbm_eq = equalize_mean(Z_fbm)\n",
+    "Z_hyb_eq = equalize_mean(Z_hyb)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "1ebba83c",
+   "metadata": {},
+   "source": [
+    "## 3. Elevation Histograms"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "6b345170",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "fig, axs = plt.subplots(1,3, figsize=(15,4))\n",
+    "for ax, Z, title in zip(axs, [Z_ds_eq, Z_fbm_eq, Z_hyb_eq], ['Diamond-Square','FBM','Hybrid']):\n",
+    "    ax.hist(Z.ravel(), bins=50)\n",
+    "    ax.set_title(f\"{title} Elevation Histogram\")\n",
+    "    ax.set_xlabel('Elevation')\n",
+    "    ax.set_ylabel('Frequency')\n",
+    "plt.tight_layout()\n",
+    "plt.show()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "413cc557",
+   "metadata": {},
+   "source": [
+    "## 4. Power Spectrum (Log-Log)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "79420087",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "fig, axs = plt.subplots(1,3, figsize=(15,4))\n",
+    "for ax, Z, title in zip(axs, [Z_ds_eq, Z_fbm_eq, Z_hyb_eq], ['Diamond-Square','FBM','Hybrid']):\n",
+    "    f, P = radial_power_spectrum(Z)\n",
+    "    ax.loglog(f, P)\n",
+    "    ax.set_title(f\"{title} Power Spectrum\")\n",
+    "    ax.set_xlabel('Frequency')\n",
+    "    ax.set_ylabel('Power')\n",
+    "plt.tight_layout()\n",
+    "plt.show()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "a199411e",
+   "metadata": {},
+   "source": [
+    "## 5. Box-Counting Dimension Estimates"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "15bcfd02",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "dims = { 'Diamond-Square': box_count_dim(Z_ds_eq),\n",
+    "         'FBM': box_count_dim(Z_fbm_eq),\n",
+    "         'Hybrid': box_count_dim(Z_hyb_eq) }\n",
+    "import pandas as pd\n",
+    "df = pd.DataFrame.from_dict(dims, orient='index', columns=['Box-Counting Dimension'])\n",
+    "df"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "d8e19ce0",
+   "metadata": {},
+   "source": [
+    "## 6. Discussion\n",
+    "Based on the elevation distributions, power spectra slopes, and fractal dimensions above, discuss which algorithm best matches real-world terrain statistics. For example, compare spectral slope values to those observed in natural DEMs (β≈2.5–3.0) and fractal dimensions (≈2.2–2.7)."
+   ]
+  }
+ ],
+ "metadata": {
+  "language_info": {
+   "name": "python"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
+
+```
+
+TerraFract.spec:
+```
+# terrafract.spec
+# -*- mode: python ; coding: utf-8 -*-
+import os
+from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs
+from PyInstaller.building.build_main import Analysis, PYZ, EXE, COLLECT
+
+block_cipher = None
+
+# 1) Gather all of PySide6 (code + plugins)
+datas, binaries, hiddenimports = collect_all('PySide6')
+# 2) Also include NumPy/SciPy shared libs
+binaries += collect_dynamic_libs('numpy') + collect_dynamic_libs('scipy')
+
+a = Analysis(
+    ['terrafract/__main__.py'],
+    pathex=[os.path.abspath('.')], 
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
+    hookspath=[],
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False,
+    cipher=block_cipher,
+)
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name='TerraFract',
+    debug=False,
+    strip=False,
+    upx=True,
+    console=False,
+)
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    name='TerraFract',
+)
+
+```
+
+terrafract_onefile.spec:
+```
+# terrafract_onefile.spec
+# -*- mode: python -*-
+
+import os, sys
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+from PyInstaller.building.build_main import Analysis, PYZ, EXE
+
+# 1. Pull in every PySide6 submodule (QtWidgets, QtCore, etc.)
+hiddenimports = collect_submodules('PySide6') \
+               + ['noise._perlin', 'noise._simplex', 'noise._openSimplex2']
+
+# 2. Copy the entire Qt plugins folder (platforms, imageformats, etc.)
+datas = collect_data_files('PySide6', includes=['plugins/*'])
+
+# 3. Manually include your python3x DLL
+#    sys.base_prefix points at your Python install (where python310.dll lives).
+python_dll = os.path.join(
+    sys.base_prefix,
+    f"python{sys.version_info.major}{sys.version_info.minor}.dll"
+)
+binaries = [(python_dll, ".")]
+
+a = Analysis(
+    ['terrafract/__main__.py'],
+    pathex=[os.getcwd()],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
+    noarchive=False,    # archive the pure Python into the EXE
+)
+
+pyz = PYZ(a.pure, a.zipped_data)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    name='TerraFract',
+    onefile=True,       # single‐file bundle
+    windowed=True,      # no console window
+)
+
+```
+
+__main__.spec:
+```
+# terrafract.spec
+# -*- mode: python -*-
+
+import os
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+
+block_cipher = None
+
+# make sure PyInstaller sees your terrafract package
+pathex = [ os.getcwd() ]
+
+# 1) entry‐point: the __main__.py inside terrafract/
+entry_script = os.path.join("terrafract", "__main__.py")
+
+# 2) grab ALL of PySide6 (QtCore, QtWidgets, etc.)
+hiddenimports = collect_submodules("PySide6")
+
+# 3) grab the Qt plugins (platforms/imageformats...)
+datas = collect_data_files("PySide6", includes=["plugins/*"])
+
+a = Analysis(
+    [ entry_script ],
+    pathex=pathex,
+    binaries=[],
+    datas=datas,
+    hiddenimports=hiddenimports,
+    hookspath=[],
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False,
+    cipher=block_cipher,
+)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name="TerraFract",
+    debug=False,
+    strip=False,
+    upx=True,
+    console=False,   # GUI app
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    name="TerraFract",
+)
+
+```
+
+terrafract/biome_texture.py:
+```
+# biome_texture.py
+
+import numpy as np
+from scipy.ndimage import gaussian_filter, distance_transform_edt
+
+# Define biome categories
+BIOMES = {
+    0: 'water',
+    1: 'sand',
+    2: 'grass',
+    3: 'forest',
+    4: 'rock',
+    5: 'snow'
+}
+
+# Simple RGB colormap for each biome
+BIOME_COLORS = {
+    'water':    np.array([ 70, 130, 180]) / 255.0,  # steelblue
+    'sand':     np.array([194, 178, 128]) / 255.0,  # sand
+    'grass':    np.array([ 34, 139,  34]) / 255.0,  # forestgreen
+    'forest':   np.array([  0, 100,   0]) / 255.0,  # darkgreen
+    'rock':     np.array([128, 128, 128]) / 255.0,  # gray
+    'snow':     np.array([255, 250, 250]) / 255.0   # snow
+}
+
+
+def compute_slope(Z):
+    """
+    Compute slope magnitude for each cell of the heightmap Z.
+    Uses numpy.gradient (zero-flux boundaries).
+    Returns an array of same shape with normalized slope in [0,1].
+    """
+    dzdy, dzdx = np.gradient(Z)
+    slope = np.hypot(dzdx, dzdy)
+    slope -= slope.min()
+    if slope.max() > 0:
+        slope /= slope.max()
+    return slope
+
+
+def compute_wetness(Z, smoothing_sigma=3):
+    """
+    Approximate wetness by smoothing the inverted heightmap:
+    lower elevations get higher wetness after gaussian blur.
+    Returns array in [0,1].
+    """
+    inv = 1.0 - Z
+    wet = gaussian_filter(inv, sigma=smoothing_sigma)
+    wet -= wet.min()
+    if wet.max() > 0:
+        wet /= wet.max()
+    return wet
+
+def assign_biomes(Z, slope, wetness,
+                  water_thresh=0.2,
+                  sand_thresh=0.3,
+                  grass_thresh=0.6,
+                  forest_thresh=0.8,
+                  rock_thresh=0.9):
+    """
+    Assign a biome index based on height, slope, and wetness.
+    Returns an int array of same shape with values 0..5.
+    Wetness is now used to split grass vs. forest/swamp.
+    """
+    n, m = Z.shape
+    biomes = np.zeros((n, m), dtype=np.int8)
+
+    # Water
+    biomes[Z <= water_thresh] = 0
+
+    # Sand on shore
+    mask = (Z > water_thresh) & (Z <= sand_thresh)
+    biomes[mask] = 1
+
+    # Grasslands / lowland forest (swamp) split by slope & wetness
+    lowland = (Z > sand_thresh) & (Z <= grass_thresh)
+    grass_mask = lowland & (slope < 0.5) & (wetness < 0.6)
+    forest_lowland = lowland & ~grass_mask
+    biomes[grass_mask] = 2
+    biomes[forest_lowland] = 3
+
+    # “High” forest: elevations above grass_thresh up to rock_thresh
+    forest_high = (Z > grass_thresh) & (Z <= rock_thresh)
+    biomes[forest_high] = 3
+
+    # Rock: anything above rock_thresh
+    biomes[Z > rock_thresh] = 4
+
+    # (Snow category not used by tests; you can extend later if desired)
+    return biomes
+
+
+def biome_colormap(biome_indices):
+    """
+    Map biome indices array to an RGB image.
+    Returns a (n,m,3) float array.
+    """
+    n, m = biome_indices.shape
+    rgb = np.zeros((n, m, 3), dtype=np.float32)
+    for idx, name in BIOMES.items():
+        mask = (biome_indices == idx)
+        rgb[mask] = BIOME_COLORS[name]
+    return rgb
+
+
+def synthesize_biomes(Z, smoothing_sigma=3,
+                      water_thresh=0.2,
+                      sand_thresh=0.3,
+                      grass_thresh=0.6,
+                      forest_thresh=0.8,
+                      rock_thresh=0.9,
+                      coastal_width=2):
+    """
+    Full pipeline: given heightmap Z, compute slope & wetness,
+    assign biomes, apply coastal wet-sand buffer, height-based shading,
+    and anti-aliased edges, then return RGB texture and biome map.
+
+    Parameters:
+      Z             - normalized heightmap in [0,1]
+      smoothing_sigma - for wetness smoothing
+      *_thresh      - elevation thresholds
+      coastal_width - buffer distance (in cells) for wet sand effect
+    Returns:
+      rgb   - (n,m,3) float array
+      biomes - (n,m) int map
+    """
+    # Compute slope and wetness
+    slope = compute_slope(Z)
+    wetness = compute_wetness(Z, smoothing_sigma=smoothing_sigma)
+    biomes = assign_biomes(Z, slope, wetness,
+                           water_thresh,
+                           sand_thresh,
+                           grass_thresh,
+                           forest_thresh,
+                           rock_thresh)
+
+    # Base RGB map
+    rgb = biome_colormap(biomes)
+
+    # Coastal wet-sand buffer: blend sand toward water near shore
+    water_mask = (biomes == 0)
+    dist = distance_transform_edt(~water_mask)
+    sand_mask = (biomes == 1)
+    coast_mask = sand_mask & (dist <= coastal_width)
+    if coastal_width > 0:
+        t = (dist[coast_mask] / coastal_width).clip(0,1)
+        sand_color = BIOME_COLORS['sand']
+        water_color = BIOME_COLORS['water']
+        rgb[coast_mask] = (t[:,None] * sand_color) + ((1-t)[:,None] * water_color)
+
+    # Height-based shading
+    shade = 0.7 + 0.3 * Z[..., np.newaxis]
+    rgb = np.clip(rgb * shade, 0.0, 1.0)
+
+    # Anti-alias biome boundaries
+    b = biomes
+    b_p = np.pad(b, pad_width=1, mode='edge')
+    edge = np.zeros_like(b, dtype=bool)
+    for di, dj in [(-1,0), (1,0), (0,-1), (0,1)]:
+        edge |= b != b_p[1+di:1+di+b.shape[0], 1+dj:1+dj+b.shape[1]]
+    blur_rgb = gaussian_filter(rgb, sigma=(0.3, 0.3, 0))
+    rgb[edge] = 0.7 * rgb[edge] + 0.3 * blur_rgb[edge]
+
+    return rgb, biomes
+
+```
+
+terrafract/fractal_workbench.py:
+```
+import sys
+import os
+import random
+import numpy as np
+from scipy.ndimage import gaussian_filter
+from scipy.spatial import Voronoi, cKDTree
+
+# Optional Numba acceleration
+try:
+    from numba import njit, prange
+    _USE_NUMBA = True
+except ImportError:
+    _USE_NUMBA = False
+    def njit(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+    prange = range
+
+from PySide6 import QtCore, QtWidgets
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+from mpl_toolkits.mplot3d import Axes3D
+
+from .heightmap_generators import generate_heightmap
+from .biome_texture import synthesize_biomes
+
+
+class FractalWorkbench(QtWidgets.QMainWindow):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("TerraFract Workbench")
+        os.makedirs("exports", exist_ok=True)
+        self.settings = QtCore.QSettings("TerraFract", "Workbench")
+        self._init_ui()
+        self.restore_settings()
+        self.update_terrain()
+
+    def _init_ui(self):
+        central = QtWidgets.QWidget()
+        self.setCentralWidget(central)
+        main_layout = QtWidgets.QVBoxLayout(central)
+
+        # --- Generator Group ---
+        self.gen_box = QtWidgets.QGroupBox("Generator Parameters")
+        self.gen_box.setCheckable(True)
+        self.gen_box.setChecked(True)
+        gen_layout = QtWidgets.QFormLayout(self.gen_box)
+
+        self.seedSpin = QtWidgets.QSpinBox()
+        self.seedSpin.setRange(0, 9999)
+        self.seedSpin.setValue(42)
+        rand_btn = QtWidgets.QPushButton("🎲 Random Seed")
+        rand_btn.clicked.connect(self.randomize_seed)
+        seed_layout = QtWidgets.QHBoxLayout()
+        seed_layout.addWidget(self.seedSpin)
+        seed_layout.addWidget(rand_btn)
+        gen_layout.addRow("Seed:", seed_layout)
+
+        self.algorithm = QtWidgets.QComboBox()
+        self.algorithm.addItems(["diamond-square", "fbm"])
+        self.algorithm.currentTextChanged.connect(self.update_terrain)
+        gen_layout.addRow("Algorithm:", self.algorithm)
+
+        self.roughness = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.roughness.setRange(1, 100)
+        self.roughness.setValue(10)
+        self.roughness.valueChanged.connect(self.on_roughness_changed)
+        self.roughness_label = QtWidgets.QLabel(f"{self.roughness.value()/10:.2f}")
+        rough_layout = QtWidgets.QHBoxLayout()
+        rough_layout.addWidget(self.roughness)
+        rough_layout.addWidget(self.roughness_label)
+        gen_layout.addRow("Roughness:", rough_layout)
+
+        self.octaves = QtWidgets.QSpinBox()
+        self.octaves.setRange(1, 10)
+        self.octaves.setValue(6)
+        self.octaves.valueChanged.connect(self.update_terrain)
+        gen_layout.addRow("Octaves:", self.octaves)
+
+        self.persistence = QtWidgets.QDoubleSpinBox()
+        self.persistence.setRange(0.1, 1.0)
+        self.persistence.setSingleStep(0.1)
+        self.persistence.setValue(0.5)
+        self.persistence.valueChanged.connect(self.update_terrain)
+        gen_layout.addRow("Persistence:", self.persistence)
+
+        self.lacunarity = QtWidgets.QDoubleSpinBox()
+        self.lacunarity.setRange(1.0, 4.0)
+        self.lacunarity.setSingleStep(0.1)
+        self.lacunarity.setValue(2.0)
+        self.lacunarity.valueChanged.connect(self.update_terrain)
+        gen_layout.addRow("Lacunarity:", self.lacunarity)
+
+        self.scale = QtWidgets.QDoubleSpinBox()
+        self.scale.setRange(1.0, 100.0)
+        self.scale.setSingleStep(1.0)
+        self.scale.setValue(50.0)
+        self.scale.valueChanged.connect(self.update_terrain)
+        gen_layout.addRow("Scale:", self.scale)
+
+        main_layout.addWidget(self.gen_box)
+
+        # --- Post-processing Group ---
+        post_box = QtWidgets.QGroupBox("Post-Processing")
+        post_box.setCheckable(True)
+        post_box.setChecked(False)
+        post_layout = QtWidgets.QFormLayout(post_box)
+
+        self.therm_chk = QtWidgets.QCheckBox("Thermal erosion")
+        self.therm_chk.stateChanged.connect(self.update_terrain)
+        self.therm_iters = QtWidgets.QSpinBox()
+        self.therm_iters.setRange(0, 100)
+        self.therm_iters.setValue(0)
+        self.therm_iters.valueChanged.connect(self.update_terrain)
+        post_layout.addRow(self.therm_chk, self.therm_iters)
+        self.talus = QtWidgets.QDoubleSpinBox()
+        self.talus.setRange(0.001, 0.1)
+        self.talus.setSingleStep(0.001)
+        self.talus.setValue(0.01)
+        self.talus.valueChanged.connect(self.update_terrain)
+        post_layout.addRow("Talus angle:", self.talus)
+
+        self.hydro_chk = QtWidgets.QCheckBox("Hydraulic erosion")
+        self.hydro_chk.stateChanged.connect(self.update_terrain)
+        self.hydro_iters = QtWidgets.QSpinBox()
+        self.hydro_iters.setRange(0, 200)
+        self.hydro_iters.setValue(0)
+        self.hydro_iters.valueChanged.connect(self.update_terrain)
+        post_layout.addRow(self.hydro_chk, self.hydro_iters)
+        self.rain = QtWidgets.QDoubleSpinBox()
+        self.rain.setRange(0.001, 0.1)
+        self.rain.setSingleStep(0.001)
+        self.rain.setValue(0.01)
+        self.rain.valueChanged.connect(self.update_terrain)
+        post_layout.addRow("Rain amount:", self.rain)
+
+        self.voro_chk = QtWidgets.QCheckBox("Voronoi cliffs")
+        self.voro_chk.stateChanged.connect(self.update_terrain)
+        self.voro_sites = QtWidgets.QSpinBox()
+        self.voro_sites.setRange(0, 50)
+        self.voro_sites.setValue(0)
+        self.voro_sites.valueChanged.connect(self.update_terrain)
+        post_layout.addRow(self.voro_chk, self.voro_sites)
+        self.ridge = QtWidgets.QDoubleSpinBox()
+        self.ridge.setRange(0.1, 2.0)
+        self.ridge.setSingleStep(0.1)
+        self.ridge.setValue(0.5)
+        self.ridge.valueChanged.connect(self.update_terrain)
+        post_layout.addRow("Ridge height:", self.ridge)
+
+        main_layout.addWidget(post_box)
+
+        # --- View & Export Group ---
+        view_box = QtWidgets.QGroupBox("Viewer & Export")
+        view_box.setCheckable(True)
+        view_box.setChecked(True)
+        view_layout = QtWidgets.QFormLayout(view_box)
+
+        self.view_toggle = QtWidgets.QComboBox()
+        self.view_toggle.addItems(["Height", "Biomes"])
+        self.view_toggle.currentTextChanged.connect(self.update_terrain)
+        view_layout.addRow("View:", self.view_toggle)
+
+        self.dimension_label = QtWidgets.QLabel("Dimension: N/A")
+        view_layout.addRow(self.dimension_label)
+
+        # PNG/OBJ toggles
+        self.png_toggle = QtWidgets.QCheckBox("Export PNG")
+        self.png_toggle.setChecked(True)
+        self.obj_toggle = QtWidgets.QCheckBox("Export OBJ")
+        self.obj_toggle.setChecked(True)
+        toolbar = self.addToolBar("Export Toggles")
+        toolbar.addWidget(self.png_toggle)
+        toolbar.addWidget(self.obj_toggle)
+
+        self.export_btn = QtWidgets.QPushButton("Export…")
+        self.export_btn.clicked.connect(self.export_dialog)
+        view_layout.addRow(self.export_btn)
+
+        main_layout.addWidget(view_box)
+
+        # Matplotlib canvas
+        self.fig = Figure(figsize=(8, 6))
+        self.canvas = FigureCanvas(self.fig)
+        main_layout.addWidget(self.canvas, 1)
+        main_layout.setStretchFactor(self.canvas, 10)
+
+        for box in (self.gen_box, post_box, view_box):
+            box.setSizePolicy(QtWidgets.QSizePolicy.Preferred,
+                              QtWidgets.QSizePolicy.Maximum)
+
+        self.ax3d = None
+        self.ax_ps = None
+
+    def randomize_seed(self):
+        self.seedSpin.setValue(random.randint(0, 9999))
+        self.update_terrain()
+
+    def on_roughness_changed(self, val):
+        self.roughness_label.setText(f"{val/10:.2f}")
+        self.update_terrain()
+
+    def export_dialog(self):
+        dlg = QtWidgets.QFileDialog(self, "Export Terrain", os.path.abspath("exports"))
+        dlg.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
+        dlg.setNameFilters(["PNG Files (*.png)", "OBJ Files (*.obj)"])
+        dlg.setOption(QtWidgets.QFileDialog.DontUseNativeDialog, False)
+
+        if dlg.exec() == QtWidgets.QDialog.Accepted:
+            out = dlg.selectedFiles()[0]
+            base, ext = os.path.splitext(out)
+
+            if self.png_toggle.isChecked():
+                png_path = base + ".png"
+                old = self.fig.get_size_inches()
+                try:
+                    self.fig.tight_layout(pad=0.3)
+                    self.fig.set_size_inches(8, 6)
+                    self.fig.savefig(png_path, dpi=300)
+                finally:
+                    self.fig.set_size_inches(old)
+
+            if self.obj_toggle.isChecked():
+                obj_path = base + ".obj"
+                Z = self.current_Z
+                h, w = Z.shape
+                with open(obj_path, 'w') as f:
+                    for i in range(h):
+                        for j in range(w):
+                            f.write(f"v {j} {i} {Z[i,j]:.4f}\n")
+                    for i in range(h-1):
+                        for j in range(w-1):
+                            v1 = i*w + j + 1
+                            v2 = v1 + 1
+                            v3 = v1 + w
+                            v4 = v3 + 1
+                            f.write(f"f {v1} {v2} {v4} {v3}\n")
+
+    def update_terrain(self):
+        algo = self.algorithm.currentText()
+        params = {}
+        seed = self.seedSpin.value()
+
+        if algo == 'diamond-square':
+            params['roughness'] = self.roughness.value() / 10.0
+            size = 129
+        else:
+            params.update({
+                'octaves':     self.octaves.value(),
+                'persistence': self.persistence.value(),
+                'lacunarity':  self.lacunarity.value(),
+                'scale':       self.scale.value()
+            })
+            size = 256
+
+        if self.therm_chk.isChecked():
+            params['thermal_iters'] = self.therm_iters.value()
+            params['talus_angle']   = self.talus.value()
+        if self.hydro_chk.isChecked():
+            params['hydro_iters']  = self.hydro_iters.value()
+            params['rain_amount']  = self.rain.value()
+        if self.voro_chk.isChecked():
+            params['voronoi_sites'] = self.voro_sites.value()
+            params['ridge_height']  = self.ridge.value()
+
+        Z = generate_heightmap(algo, size=size, seed=seed, **params)
+        self.current_Z = Z
+
+        # create or clear the subplots
+        if self.ax3d is None or self.ax_ps is None:
+            self.fig.clear()
+            self.ax3d = self.fig.add_subplot(121, projection='3d')
+            self.ax_ps = self.fig.add_subplot(122)
+        else:
+            self.ax3d.clear()
+            self.ax_ps.clear()
+
+        # adjust spacing every time we redraw
+        self.fig.subplots_adjust(wspace=0.35)
+
+        # render terrain
+        view = self.view_toggle.currentText()
+        img = synthesize_biomes(Z)[0] if view == 'Biomes' else Z
+
+        X, Y = np.meshgrid(range(Z.shape[1]), range(Z.shape[0]))
+        self.ax3d.plot_surface(
+            X, Y, Z,
+            facecolors=img if view=='Biomes' else None,
+            cmap='terrain' if view=='Height' else None,
+            linewidth=0, antialiased=False
+        )
+        self.ax3d.set_title('Terrain')
+        if view == 'Biomes':
+            self.ax3d.set_axis_off()
+
+        # compute and plot power spectrum
+        F = np.fft.fftshift(np.fft.fft2(Z))
+        P = np.abs(F)**2
+        cy, cx = P.shape[0]//2, P.shape[1]//2
+        y, x = np.indices(P.shape)
+        r = np.hypot(x-cx, y-cy).astype(int)
+        tbin = np.bincount(r.ravel(), P.ravel())
+        nr   = np.bincount(r.ravel())
+        radial = tbin / np.maximum(nr, 1)
+
+        freqs = np.arange(len(radial))
+        self.ax_ps.loglog(freqs[1:], radial[1:]+1e-12)
+        self.ax_ps.set_title('Power Spectrum')
+        self.ax_ps.set_xlabel('Radial Frequency')
+        self.ax_ps.set_ylabel('Power')
+
+        # update dimension label
+        dim = self.box_counting_dimension(Z)
+        self.dimension_label.setText(f"Dimension: {dim:.3f}")
+
+        self.canvas.draw()
+        self.save_settings()
+
+    def box_counting_dimension(self, Z, sizes=None):
+        """
+        Estimate the box-counting (Minkowski–Bouligand) fractal dimension.
+
+        Works even when the map side-length is 2^k + 1 (129, 257, …) by
+        trimming the extra row/col instead of insisting on exact divisibility.
+        """
+        mask = Z > Z.mean()
+        n = Z.shape[0]
+
+        # candidate box sizes: 2,4,8,… < n
+        if sizes is None:
+            max_pow = int(np.floor(np.log2(n)))
+            sizes   = [2 ** i for i in range(1, max_pow)]
+
+        counts, scales = [], []
+        for s in sizes:
+            grid_cnt = n // s
+            if grid_cnt <= 1:
+                continue
+            sub = mask[:grid_cnt*s, :grid_cnt*s]
+            blocks = sub.reshape(grid_cnt, s, grid_cnt, s)
+            num_filled = blocks.any(axis=(1,3)).sum()
+            if num_filled > 0:
+                counts.append(num_filled)
+                scales.append(s)
+
+        if len(counts) < 2:
+            return float('nan')
+
+        logs     = np.log(counts)
+        logs_inv = np.log(1/np.array(scales))
+        slope, _ = np.polyfit(logs_inv, logs, 1)
+        return slope
+
+    def save_settings(self):
+        self.settings.setValue("seed", self.seedSpin.value())
+        self.settings.setValue("algorithm", self.algorithm.currentText())
+        self.settings.setValue("roughness", self.roughness.value())
+        self.settings.setValue("generator_expanded", self.gen_box.isChecked())
+
+    def restore_settings(self):
+        if self.settings.contains("seed"):
+            self.seedSpin.setValue(int(self.settings.value("seed")))
+        if self.settings.contains("algorithm"):
+            self.algorithm.setCurrentText(self.settings.value("algorithm"))
+        if self.settings.contains("roughness"):
+            self.roughness.setValue(int(self.settings.value("roughness")))
+        if self.settings.contains("generator_expanded"):
+            self.gen_box.setChecked(self.settings.value("generator_expanded") == 'true')
+
+
+if __name__ == '__main__':
+    app = QtWidgets.QApplication(sys.argv)
+    w = FractalWorkbench()
+    w.show()
+    sys.exit(app.exec())
+
+```
+
+terrafract/heightmap_generators.py:
+```
+# heightmap_generators.py
+
+import numpy as np
+import warnings
+from scipy.ndimage import gaussian_filter
+
+from .post_processing import thermal_erosion, hydraulic_erosion, voronoi_cliffs
+
+
+def _next_pow2_plus1(n: int) -> int:
+    """Return the smallest 2^k + 1 ≥ n."""
+    k = int(np.ceil(np.log2(n - 1)))
+    return 2**k + 1
+
+
+class HeightMapGenerator:
+    """
+    Base class for height map generators.
+    Subclasses must implement generate() returning a 2D numpy array in [0,1].
+    """
+    def __init__(self, seed: int | None = None, size: int = 257):
+        self.seed = seed
+        self.size = size
+        if seed is not None:
+            np.random.seed(seed)
+
+    def generate(self, **params) -> np.ndarray:
+        raise NotImplementedError("Subclasses must implement generate().")
+
+
+class DiamondSquareGenerator(HeightMapGenerator):
+    """
+    Implements the diamond-square algorithm.
+    params:
+      - roughness: float, controls the variation amplitude
+    """
+    def generate(self, roughness: float = 1.0) -> np.ndarray:
+        # ensure size = 2^n + 1
+        if (self.size - 1) & (self.size - 2):
+            new_size = _next_pow2_plus1(self.size)
+            warnings.warn(f"Resizing grid from {self.size}→{new_size} for diamond-square")
+            n = new_size
+        else:
+            n = self.size
+
+        grid = np.zeros((n, n), dtype=np.float32)
+        # initialize corners
+        grid[0, 0] = np.random.rand()
+        grid[0, -1] = np.random.rand()
+        grid[-1, 0] = np.random.rand()
+        grid[-1, -1] = np.random.rand()
+
+        step_size = n - 1
+        scale = roughness
+
+        while step_size > 1:
+            half = step_size // 2
+
+            # Diamond step
+            for x in range(0, n - 1, step_size):
+                for y in range(0, n - 1, step_size):
+                    avg = (
+                        grid[x, y]
+                        + grid[x + step_size, y]
+                        + grid[x, y + step_size]
+                        + grid[x + step_size, y + step_size]
+                    ) * 0.25
+                    grid[x + half, y + half] = avg + (np.random.rand() - 0.5) * scale
+
+            # Square step
+            for x in range(0, n, half):
+                for y in range((x + half) % step_size, n, step_size):
+                    vals = []
+                    if x - half >= 0:
+                        vals.append(grid[x - half, y])
+                    if x + half < n:
+                        vals.append(grid[x + half, y])
+                    if y - half >= 0:
+                        vals.append(grid[x, y - half])
+                    if y + half < n:
+                        vals.append(grid[x, y + half])
+                    avg = np.mean(vals)
+                    grid[x, y] = avg + (np.random.rand() - 0.5) * scale
+
+            step_size = half
+            scale *= 0.5  # fixed amplitude decay
+
+        # normalize to [0,1]
+        grid -= grid.min()
+        grid /= grid.max()
+        return grid
+
+
+class FBMGenerator(HeightMapGenerator):
+    """
+    Fractal Brownian Motion using Perlin noise or fallback smooth noise.
+    params:
+      - octaves, persistence, lacunarity, scale
+    """
+    def __init__(self, seed: int | None = None, size: int = 256):
+        super().__init__(seed, size)
+        try:
+            from noise import pnoise2
+            self._noise_func = pnoise2
+            self._use_perlin = True
+        except ImportError:
+            arr = np.random.rand(self.size, self.size).astype(np.float32)
+            self._base_noise = gaussian_filter(arr, sigma=self.size / 8)
+            self._use_perlin = False
+
+    def generate(
+        self,
+        octaves: int = 6,
+        persistence: float = 0.5,
+        lacunarity: float = 2.0,
+        scale: float = 50.0
+    ) -> np.ndarray:
+        shape = (self.size, self.size)
+        heightmap = np.zeros(shape, dtype=np.float32)
+
+        if not self._use_perlin:
+            xv = np.linspace(0, self.size - 1, shape[1])
+            yv = np.linspace(0, self.size - 1, shape[0])
+            tmp = np.interp(xv[np.newaxis, :], np.arange(self.size), self._base_noise)
+            heightmap = np.interp(yv[:, np.newaxis], np.arange(self.size), tmp)
+        else:
+            for i in range(shape[0]):
+                for j in range(shape[1]):
+                    x = i / scale
+                    y = j / scale
+                    amp, freq = 1.0, 1.0
+                    val = 0.0
+                    for _ in range(octaves):
+                        val += amp * self._noise_func(x * freq, y * freq)
+                        amp *= persistence
+                        freq *= lacunarity
+                    heightmap[i, j] = val
+
+        # normalize to [0,1]
+        heightmap -= heightmap.min()
+        heightmap /= heightmap.max()
+        return heightmap
+
+
+def generate_heightmap(
+    algorithm: str = 'diamond-square',
+    size: int = 257,
+    seed: int | None = None,
+    **params
+) -> np.ndarray:
+    """
+    Generate a heightmap using the specified algorithm, then apply optional post-processing.
+    Supported post-processing keys in params:
+      - thermal_iters, talus_angle
+      - hydro_iters, rain_amount, solubility
+      - voronoi_sites, ridge_height
+    """
+    post_keys = {
+        'thermal_iters', 'talus_angle',
+        'hydro_iters', 'rain_amount', 'solubility',
+        'voronoi_sites', 'ridge_height'
+    }
+    post = {k: params.pop(k) for k in list(params) if k in post_keys}
+
+    algo = algorithm.lower()
+    if algo == 'diamond-square':
+        gen = DiamondSquareGenerator(seed=seed, size=size)
+    elif algo in ('fbm', 'fractal-brownian-motion'):
+        gen = FBMGenerator(seed=seed, size=size)
+    else:
+        raise ValueError(f"Unknown algorithm '{algorithm}'")
+
+    Z = gen.generate(**params)
+
+    if post.get('thermal_iters'):
+        Z = thermal_erosion(
+            Z,
+            iterations=post['thermal_iters'],
+            talus_angle=post.get('talus_angle', 0.01)
+        )
+    if post.get('hydro_iters'):
+        Z = hydraulic_erosion(
+            Z,
+            iterations=post['hydro_iters'],
+            rain_amount=post.get('rain_amount', 0.01),
+            solubility=post.get('solubility', 0.1)
+        )
+    if post.get('voronoi_sites'):
+        Z = voronoi_cliffs(
+            Z,
+            num_sites=post['voronoi_sites'],
+            ridge_height=post.get('ridge_height', 0.5)
+        )
+
+    return Z
+
+```
+
+terrafract/post_processing.py:
+```
+# post_processing.py
+
+import numpy as np
+from scipy.ndimage import gaussian_filter
+from scipy.spatial import Voronoi, cKDTree
+from numba import njit, prange
+
+@njit(parallel=True)
+def _thermal_core(Z, iterations, talus_angle):
+    """
+    Core loop for thermal erosion, accelerated with Numba.
+    Z: 2D float64 array
+    iterations: number of passes
+    talus_angle: slope threshold
+    Returns: new heightmap array
+    """
+    n, m = Z.shape
+    Z_out = Z.copy()
+    for _ in range(iterations):
+        delta = np.zeros_like(Z_out)
+        for i in prange(1, n-1):
+            for j in range(1, m-1):
+                h = Z_out[i, j]
+                # check 4 neighbors
+                for di, dj in ((1,0), (-1,0), (0,1), (0,-1)):
+                    h2 = Z_out[i+di, j+dj]
+                    slope = h - h2
+                    if slope > talus_angle:
+                        tr = 0.5 * (slope - talus_angle)
+                        delta[i, j]    -= tr
+                        delta[i+di, j+dj] += tr
+        Z_out += delta
+    return Z_out
+
+
+def thermal_erosion(Z, iterations=10, talus_angle=0.01):
+    """
+    Thermal erosion with Numba-accelerated core.
+    Normalizes output back to [0,1].
+    """
+    Zn = Z.copy().astype(np.float64)
+    Zn -= Zn.min()
+    if Zn.max() > 0:
+        Zn /= Zn.max()
+    # run Numba core
+    Zt = _thermal_core(Zn, iterations, talus_angle)
+    # re-normalize
+    Zt -= Zt.min()
+    if Zt.max() > 0:
+        Zt /= Zt.max()
+    return Zt
+
+
+@njit(parallel=True)
+def _hydro_core(Z, water, sediment, iterations, rain_amount, solubility):
+    """
+    Core loop for hydraulic erosion, accelerated with Numba.
+    Z: heightmap, water: water map, sediment: sediment map
+    Returns: eroded heightmap
+    """
+    n, m = Z.shape
+    Z_out = Z.copy()
+    W = water.copy()
+    S = sediment.copy()
+    for _ in range(iterations):
+        W += rain_amount
+        for i in prange(1, n-1):
+            for j in range(1, m-1):
+                h = Z_out[i, j] + W[i, j]
+                # find downslope neighbors
+                total_drop = 0.0
+                lows = []
+                for di, dj in ((1,0), (-1,0), (0,1), (0,-1)):
+                    ii, jj = i+di, j+dj
+                    h2 = Z_out[ii, jj] + W[ii, jj]
+                    drop = h - h2
+                    if drop > 0.0:
+                        total_drop += drop
+                        lows.append((ii, jj, drop))
+                if total_drop <= 0.0:
+                    continue
+                # distribute flow
+                for ii, jj, drop in lows:
+                    frac = drop / total_drop
+                    flow = W[i, j] * frac
+                    W[i, j]   -= flow
+                    W[ii, jj] += flow
+                    dsed = solubility * flow
+                    Z_out[i, j]   -= dsed
+                    S[ii, jj] += dsed
+    return Z_out
+
+
+def hydraulic_erosion(Z, iterations=50, rain_amount=0.01, solubility=0.1):
+    """
+    Hydraulic erosion with Numba-accelerated core.
+    Normalizes output back to [0,1].
+    """
+    Zn = Z.copy().astype(np.float64)
+    Zn -= Zn.min()
+    if Zn.max() > 0:
+        Zn /= Zn.max()
+    # initialize water & sediment maps
+    water = np.zeros_like(Zn)
+    sediment = np.zeros_like(Zn)
+    Zh = _hydro_core(Zn, water, sediment, iterations, rain_amount, solubility)
+    Zh -= Zh.min()
+    if Zh.max() > 0:
+        Zh /= Zh.max()
+    return Zh
+
+
+def voronoi_cliffs(Z, num_sites=10, ridge_height=0.5):
+    """
+    Voronoi-based cliff formation (unchanged).
+    """
+    n, m = Z.shape
+    pts = np.column_stack(
+        (
+            np.random.uniform(0, n, size=num_sites),
+            np.random.uniform(0, m, size=num_sites)
+        )
+    )
+    vor = Voronoi(pts)
+    grid_pts = np.indices((n, m)).transpose(1, 2, 0).reshape(-1, 2)
+    ridge_pts = vor.vertices
+    tree = cKDTree(ridge_pts)
+    dists, _ = tree.query(grid_pts)
+    dist_map = dists.reshape(n, m)
+    with np.errstate(divide='ignore'):
+        influence = np.exp(-(dist_map**2) / (2 * (n/num_sites)**2))
+    Z2 = Z + ridge_height * influence
+    Z2 -= Z2.min()
+    if Z2.max() > 0:
+        Z2 /= Z2.max()
+    return Z2
+```
+
+terrafract/pyproject.toml:
+```
+[project]
+name = "terrafract"
+version = "1.0.0"
+description = "Procedural terrain generation toolkit"
+authors = [
+  { name = "Vic", email = "you@example.com" }
+]
+dependencies = [
+  "numpy",
+  "scipy",
+  "matplotlib",
+  "noise",
+  "shapely",
+  "geopandas",
+  "scikit-image",
+  "gdal",
+  "websockets",
+  "numba",
+]
+
+[project.optional-dependencies]
+gui = ["PySide6"]
+analysis = ["pytest", "pytest-cov", "ruff"]
+
+```
+
+terrafract/pytest.ini:
+```
+
+[pytest]
+markers =
+    slow: tests that require JIT compilation or large loops
+```
+
+terrafract/README.md:
+```
+# TerraFract
+
+**TerraFract** is a Python toolkit and interactive workbench for procedural terrain generation using fractal algorithms. It supports classic Diamond–Square, Fractal Brownian Motion (FBM), and hybrid schemes, along with post-processing (thermal and hydraulic erosion, Voronoi cliffs), biome synthesis, spectral analysis, and export tools.
+
+---
+
+## Features
+
+* **Height-map Generators**: Diamond–Square (2ⁿ+1 grids with intuitive roughness decay), FBM (Perlin-noise based, with graceful fallback), and hybrid mixes.
+* **Post-processing**: Thermal erosion (angle-of-repose), hydraulic erosion (flow and sediment transport), Voronoi-based cliff carving.
+* **Biome Texturing**: Automatic classification by elevation, slope, and wetness into water, sand, grass, forest, rock, and snow; PBR-ready colormap.
+* **Interactive Workbench**: Real-time GUI with parameter sliders, 3D Matplotlib surface or biome overlay, spectral (power-spectrum) plot, box-counting dimension estimate.
+* **Comparative Study Notebook**: Jupyter notebook for elevation histograms, log-log spectral plots, and fractal-dimension comparisons across generators.
+* **Reverse Engineering**: Fit FBM parameters (Hurst exponent H, persistence, lacunarity) to a real DEM, then synthesize a matching fractal surface.
+* **Stretch Goals**: Erosion time-lapse animations, river network extraction + Shapefile export, basic VR stub, multiplayer terraforming sandbox, OBJ export.
+
+---
+
+## Installation
+
+Clone the repository and install dependencies:
+
+```bash
+git clone https://github.com/yourusername/terrafract.git
+cd terrafract
+pip install -r requirements.txt
+````
+
+Alternatively, install from PyPI (coming soon):
+
+```bash
+pip install terrafract
+```
+
+---
+
+## Quickstart
+
+### Command-Line Demo
+
+```bash
+# Generate and view a simple heightmap via CLI
+python - << 'PY'
+from heightmap_generators import generate_heightmap
+import matplotlib.pyplot as plt
+Z = generate_heightmap('diamond-square', size=129, seed=0, roughness=0.8)
+plt.imshow(Z, cmap='terrain'); plt.axis('off'); plt.show()
+PY
+```
+
+### GUI Workbench
+
+Launch the interactive tool:
+
+```bash
+python fractal_workbench.py
+```
+
+![Workbench Slider Demo](docs/sliders.gif)
+
+* Select presets (Default, Alpine, Desert, Archipelago) or fine-tune sliders.
+* Toggle between height shading and biome overlay.
+* View power-spectrum and fractal dimension in real time.
+* Click **Save** to export `terrain.png` and `terrain.obj` into the `exports/` folder.
+
+---
+
+## Documentation
+
+Full API reference, tutorials, and examples are available in the `docs/` directory (generate with MkDocs) or online at:
+
+```
+https://yourusername.github.io/terrafract/
+```
+
+Key docs:
+
+* **Usage Guide**: `docs/usage.md`
+* **API Reference**: `docs/api.md`
+* **Tutorials**: `docs/tutorials/*.md`
+
+---
+
+## Testing & CI
+
+Run the test suite:
+
+```bash
+pytest -q
+```
+
+Configure pre-commit hooks with [Black](https://black.readthedocs.io) and [Ruff](https://github.com/charliermarsh/ruff).
+
+Continuous integration is set up via GitHub Actions for Python 3.10 and 3.11 on Windows and Linux.
+
+---
+
+## Contributing
+
+Feel free to open issues and pull requests. Please follow the existing code style and add tests for new features.
+
+---
+
+## License
+
+[MIT License](LICENSE)
+
+```
+
+terrafract/requirements.txt:
+```
+numpy
+scipy
+matplotlib
+noise
+PySide6
+shapely
+scikit-image
+websockets
+numba
+scikit-learn
+pyinstaller
+```
+
+terrafract/reverse_engineering.py:
+```
+# reverse_engineering.py
+
+import numpy as np
+from scipy import fftpack
+from sklearn.linear_model import LinearRegression
+
+from spectral import radial_power_spectrum
+
+def estimate_spectral_exponent(Z, fit_range=None):
+    freqs, power = radial_power_spectrum(Z)
+    if fit_range is None:
+        fit_range = (5, min(Z.shape)//3)
+    fmin, fmax = fit_range
+    mask = (freqs >= fmin) & (freqs <= fmax)
+    log_f = np.log(freqs[mask])
+    log_p = np.log(power[mask])
+    model = LinearRegression()
+    model.fit(log_f.reshape(-1,1), log_p)
+    beta = model.coef_[0]
+    return beta, model.intercept_
+
+def translate_beta_to_H(beta):
+    return (beta - 2) / 2
+
+def fit_fbm_parameters(Z_real, scale=None, octaves=6):
+    Z = Z_real.astype(float)
+    Z -= Z.min(); Z /= Z.max()
+    beta, _ = estimate_spectral_exponent(Z)
+    H = np.clip((beta - 2)/2, 0.0, 1.0)
+    return {
+        'H': H,
+        'persistence': 0.5,
+        'lacunarity': 2.0,
+        'octaves': octaves,
+        'scale': scale if scale else max(Z.shape)/2
+    }
+
+def reverse_engineer_heightmap(Z_real, algorithm='fbm', seed=0):
+    if algorithm.lower() != 'fbm':
+        raise NotImplementedError("Only FBM reverse-engineering is implemented.")
+
+    params = fit_fbm_parameters(Z_real)
+    from heightmap_generators import FBMGenerator
+    gen = FBMGenerator(seed=seed, size=Z_real.shape[0])
+    Z_synth = gen.generate(
+        octaves=params['octaves'],
+        persistence=params['persistence'],
+        lacunarity=params['lacunarity'],
+        scale=params['scale']
+    )
+    return params, Z_synth
+
+if __name__ == '__main__':
+    import matplotlib.pyplot as plt
+
+    dem = gdal.Open('path/to/SRTM_tile.tif')
+    Z_real = dem.GetRasterBand(1).ReadAsArray().astype(float)
+
+    params, Z_synth = reverse_engineer_heightmap(Z_real, seed=42)
+    print("Estimated parameters:", params)
+
+    fig, axes = plt.subplots(1,2, figsize=(10,5))
+    axes[0].imshow(Z_real, cmap='terrain'); axes[0].set_title('Real DEM')
+    axes[1].imshow(Z_synth, cmap='terrain'); axes[1].set_title('Synthesized fBm')
+    plt.show()
+
+```
+
+terrafract/spectral.py:
+```
+# spectral.py
+
+import numpy as np
+from scipy import fftpack
+
+# Cache radial bin indices per shape to speed repeated calls
+_radial_cache: dict[tuple[int,int], dict[int,np.ndarray]] = {}
+
+def radial_power_spectrum(Z: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Compute the radial (isotropic) power spectrum of a 2D array.
+
+    Returns
+    -------
+    freqs : 1D array of radial frequencies (skipping zero)
+    power : 1D array of averaged spectral power at each frequency
+    """
+    ny, nx = Z.shape
+    key = (ny, nx)
+    if key not in _radial_cache:
+        cy, cx = ny // 2, nx // 2
+        y, x = np.indices((ny, nx))
+        r = np.hypot(x - cx, y - cy).astype(int)
+        # map each radius to flat indices array
+        tbin_idx = {ri: np.where(r.ravel() == ri)[0] for ri in np.unique(r)}
+        _radial_cache[key] = tbin_idx
+    else:
+        tbin_idx = _radial_cache[key]
+
+    # 2D FFT → shifted power
+    F = fftpack.fftshift(fftpack.fft2(Z))
+    P = np.abs(F)**2
+    flatP = P.ravel()
+
+    freqs = []
+    power = []
+    for ri, idxs in sorted(tbin_idx.items()):
+        if ri == 0:  # skip the DC term
+            continue
+        freqs.append(ri)
+        power.append(flatP[idxs].mean())
+
+    return np.array(freqs), np.array(power)
+
+```
+
+terrafract/stretch_goals.py:
+```
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+from .post_processing import thermal_erosion, hydraulic_erosion
+
+# For river extraction and shapefile export
+import shapely.geometry as geom
+import geopandas as gpd
+
+import matplotlib
+matplotlib.use('Agg')
+
+
+# For VR (stub)
+try:
+    import pyopenxr as xr
+except ImportError:
+    xr = None  # VR support requires pyopenxr
+
+# For multiplayer sandbox
+import asyncio
+import websockets
+
+
+def create_erosion_timelapse(Z_init, steps=100, therm_iters=1, hydro_iters=1, interval=100,
+                             output_path='erosion_timelapse.mp4'):
+    """
+    Generate a time-lapse movie of terrain evolving under thermal and hydraulic erosion.
+
+    Z_init: initial heightmap (2D numpy array)
+    steps: number of frames (time steps)
+    therm_iters/hydro_iters: erosion iterations per frame
+    interval: ms between frames in the animation
+    output_path: path to save the MP4 video
+    """
+    fig, ax = plt.subplots()
+    im = ax.imshow(Z_init, cmap='terrain', vmin=0, vmax=1)
+    plt.axis('off')
+
+    Z = Z_init.copy()
+    
+    def update(frame):
+        nonlocal Z
+        if therm_iters > 0:
+            Z = thermal_erosion(Z, iterations=therm_iters, talus_angle=0.01)
+        if hydro_iters > 0:
+            Z = hydraulic_erosion(Z, iterations=hydro_iters, rain_amount=0.01)
+        im.set_data(Z)
+        return [im]
+
+    anim = animation.FuncAnimation(fig, update, frames=steps, interval=interval, blit=True)
+    anim.save(output_path, dpi=200, fps=1000 // interval)
+    plt.close(fig)
+    print(f"Saved erosion time-lapse to {output_path}")
+
+
+def generate_river_network(Z, threshold=100, smooth_factor=5):
+    """
+    Procedural river extraction via flow accumulation.
+
+    Z: normalized heightmap in [0,1]
+    threshold: min accumulation to form a river
+    smooth_factor: degree of Bézier smoothing
+
+    Returns a list of shapely LineString objects.
+    """
+    # Simple D8 flow directions
+    ny, nx = Z.shape
+    # Compute slope to neighbors
+    acc = np.ones_like(Z)
+    # Iteratively accumulate flow
+    for i in range(ny):
+        for j in range(nx):
+            # find lowest neighbor
+            min_h = Z[i,j]
+            dir = None
+            for di, dj in [(-1,0),(1,0),(0,-1),(0,1),(-1,-1),(-1,1),(1,-1),(1,1)]:
+                ii, jj = i+di, j+dj
+                if 0 <= ii < ny and 0 <= jj < nx and Z[ii,jj] < min_h:
+                    min_h = Z[ii,jj]
+                    dir = (ii, jj)
+            if dir:
+                acc[dir] += acc[i,j]
+
+    # Identify river pixels
+    river_mask = acc > threshold
+    # Extract connected river segments (simple approach: trace lines)
+    rivers = []
+    visited = np.zeros_like(river_mask)
+    for i in range(ny):
+        for j in range(nx):
+            if river_mask[i,j] and not visited[i,j]:
+                # Trace downstream
+                coords = []
+                ci, cj = i, j
+                while True:
+                    coords.append((cj, ci))
+                    visited[ci, cj] = True
+                    # find next
+                    min_h = Z[ci,cj]
+                    nxt = None
+                    for di, dj in [(-1,0),(1,0),(0,-1),(0,1),(-1,-1),(-1,1),(1,-1),(1,1)]:
+                        ii, jj = ci+di, cj+dj
+                        if 0 <= ii < ny and 0 <= jj < nx and Z[ii,jj] < min_h:
+                            min_h = Z[ii,jj]
+                            nxt = (ii, jj)
+                    if nxt and river_mask[nxt]:
+                        ci, cj = nxt
+                        if visited[ci, cj]:
+                            break
+                    else:
+                        break
+                if len(coords) > 1:
+                    rivers.append(geom.LineString(coords))
+    # Smooth with Chaikin's corner cutting (approximate Bézier)
+    def chaikin(coords):
+        new = []
+        for a,b in zip(coords[:-1], coords[1:]):
+            new.append((0.75*a[0] + 0.25*b[0], 0.75*a[1] + 0.25*b[1]))
+            new.append((0.25*a[0] + 0.75*b[0], 0.25*a[1] + 0.75*b[1]))
+        return new
+    smooth_rivers = []
+    for line in rivers:
+        coords = list(line.coords)
+        for _ in range(smooth_factor):
+            coords = chaikin(coords)
+        smooth_rivers.append(geom.LineString(coords))
+
+    return smooth_rivers
+
+
+def export_rivers_shapefile(rivers, filename='rivers.shp'):
+    """
+    Export a list of shapely LineString objects as a Shapefile.
+    """
+    gdf = gpd.GeoDataFrame(geometry=rivers, crs="EPSG:4326")
+    gdf.to_file(filename)
+    print(f"Exported {len(rivers)} rivers to {filename}")
+
+
+def run_vr_walkthrough(Z):
+    """
+    Stub for VR terrain walkthrough using OpenXR.
+    Requires pyopenxr and a VR headset.
+    """
+    if xr is None:
+        raise ImportError("pyopenxr not installed; install with pip install pyopenxr")
+    # TODO: initialize XR instance, create swapchain, render heightmap mesh in VR
+    print("Starting VR walkthrough (stub)...")
+
+
+async def handle_terraforming(websocket, path, Z, bump_radius=5, bump_height=0.1):
+    """
+    WebSocket handler for multiplayer terraforming sandbox.
+    Clients send JSON {x, y} to raise terrain.
+    Broadcast updated heightmap to all clients.
+    """
+    import json
+    clients = set()
+    clients.add(websocket)
+    try:
+        async for message in websocket:
+            data = json.loads(message)
+            x, y = data['x'], data['y']
+            # apply Gaussian bump
+            xx, yy = np.meshgrid(np.arange(Z.shape[1]), np.arange(Z.shape[0]))
+            dist2 = (xx - x)**2 + (yy - y)**2
+            bump = bump_height * np.exp(-dist2/(2*bump_radius**2))
+            Z += bump
+            Z = np.clip(Z, 0, 1)
+            # broadcast new Z to clients
+            payload = json.dumps({'heightmap': Z.tolist()})
+            await asyncio.wait([c.send(payload) for c in clients])
+    finally:
+        clients.remove(websocket)
+
+
+def start_multiplayer_sandbox(Z, host='localhost', port=8765):
+    """
+    Launch the multiplayer terraforming sandbox WebSocket server.
+    """
+    loop = asyncio.get_event_loop()
+    server = websockets.serve(lambda ws, path: handle_terraforming(ws, path, Z), host, port)
+    loop.run_until_complete(server)
+    print(f"Multiplayer sandbox running on ws://{host}:{port}")
+    loop.run_forever()
+```
+
+terrafract/terrafract.spec:
+```
+# -*- mode: python -*-
+import sys
+from PyInstaller.utils.hooks import (
+    collect_submodules,
+    collect_data_files,
+    collect_dynamic_libs
+)
+
+block_cipher = None
+
+# entry‐point: your package’s __main__.py
+entry_script = "__main__.py"
+
+# 1) Pull in PySide6 plugins and matplotlib data,
+#    but let the hooks do the matplotlib part for you.
+datas = (
+    collect_data_files("PySide6", includes=["plugins/*"])
+    # you can drop your manual collect_data_files("matplotlib",…) here
+)
+
+# 2) Hidden imports so nothing gets missed
+hiddenimports = (
+    collect_submodules("PySide6")
+  + ["noise._perlin"]
+  + ["matplotlib.backends.backend_qtagg", "matplotlib.backends.backend_agg"]
+)
+
+# 3) **Collect the actual .pyd/.dll** for NumPy & SciPy
+binaries = (
+    collect_dynamic_libs("numpy")
+  + collect_dynamic_libs("scipy")
+)
+
+# 4) Exclude tests & stuff you never use
+excludes = [
+    "pytest", "test_terrafract", "tomlkit",
+    "numpy.tests", "PySide6.scripts.project_lib"
+]
+
+a = Analysis(
+    [entry_script],
+    pathex=["."],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
+    excludes=excludes,
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+)
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=False,
+    name="TerraFract",
+    debug=False,
+    strip=False,
+    upx=True,
+    console=False,   # GUI app
+)
+
+```
+
+terrafract/tweak.py:
+```
+# tweak.py
+import argparse
+import matplotlib.pyplot as plt
+from .heightmap_generators import generate_heightmap
+from .biome_texture import synthesize_biomes
+
+p = argparse.ArgumentParser()
+p.add_argument("--algo", choices=["diamond-square","fbm"], default="diamond-square")
+p.add_argument("--size", type=int, default=129)
+p.add_argument("--seed", type=int, default=42)
+# DS params
+p.add_argument("--roughness", type=float, default=1.0)
+# FBM params
+p.add_argument("--octaves", type=int, default=6)
+p.add_argument("--persistence", type=float, default=0.5)
+p.add_argument("--lacunarity", type=float, default=2.0)
+p.add_argument("--scale", type=float, default=50.0)
+# Biome thresholds
+p.add_argument("--water-thresh", type=float, default=0.2)
+p.add_argument("--sand-thresh", type=float, default=0.3)
+p.add_argument("--forest-thresh", type=float, default=0.8)
+p.add_argument("--view", choices=["height","biomes"], default="height")
+args = p.parse_args()
+
+# Generate
+common = dict(size=args.size, seed=args.seed)
+if args.algo=="diamond-square":
+    Z = generate_heightmap("diamond-square", **common, roughness=args.roughness)
+else:
+    Z = generate_heightmap("fbm", **common,
+                           octaves=args.octaves, persistence=args.persistence,
+                           lacunarity=args.lacunarity, scale=args.scale)
+
+if args.view=="biomes":
+    from biome_texture import compute_slope, compute_wetness, assign_biomes, biome_colormap
+    s = compute_slope(Z)
+    w = compute_wetness(Z)
+    b = assign_biomes(Z, s, w,
+                      water_thresh=args.water_thresh,
+                      sand_thresh=args.sand_thresh,
+                      grass_thresh=0.6,
+                      forest_thresh=args.forest_thresh,
+                      rock_thresh=0.9)
+    img = biome_colormap(b)
+    plt.imshow(img)
+else:
+    plt.imshow(Z, cmap="terrain")
+plt.axis("off")
+plt.show()
+
+```
+
+terrafract/__main__.py:
+```
+#!/usr/bin/env python3
+import sys
+import subprocess
+import os
+import tempfile
+import webbrowser
+from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QMessageBox
+from terrafract.fractal_workbench import FractalWorkbench
+from terrafract.stretch_goals import create_erosion_timelapse
+import numpy as np
+
+from PySide6.QtCore import QThread, Signal
+
+class TimelapseThread(QThread):
+    """
+    Runs create_erosion_timelapse in a worker thread so the GUI stays
+    responsive.
+    """
+    finished = Signal(str)  # will emit the path of the saved video
+
+    def __init__(self, Z_init, steps, therm_iters, hydro_iters, interval, output_path):
+        super().__init__()
+        self.Z_init = Z_init
+        self.steps = steps
+        self.therm_iters = therm_iters
+        self.hydro_iters = hydro_iters
+        self.interval = interval
+        self.output_path = output_path
+
+    def run(self):
+        # This runs in the background!
+        create_erosion_timelapse(
+            self.Z_init,
+            steps=self.steps,
+            therm_iters=self.therm_iters,
+            hydro_iters=self.hydro_iters,
+            interval=self.interval,
+            output_path=self.output_path
+        )
+        # Notify the main thread when done
+        self.finished.emit(self.output_path)
+
+class MainWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("TerraFract Launcher")
+        self.workbenches = []  # keep Python refs so they're not GC'd
+
+        layout = QVBoxLayout(self)
+
+        open_btn = QPushButton("Open Workbench")
+        open_btn.clicked.connect(self.open_workbench)
+        layout.addWidget(open_btn)
+
+        tweak_btn = QPushButton("Quick Tweak (CLI)")
+        tweak_btn.clicked.connect(self.quick_tweak)
+        layout.addWidget(tweak_btn)
+
+        eros_btn = QPushButton("Erosion Time-lapse")
+        eros_btn.clicked.connect(self.run_timelapse)
+        layout.addWidget(eros_btn)
+
+    def open_workbench(self):
+        fb = FractalWorkbench(parent=self)
+        self.workbenches.append(fb)
+        fb.show()
+
+    def quick_tweak(self):
+        subprocess.Popen(
+            [sys.executable, "-m", "terrafract.tweak"],
+            creationflags=(
+                subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
+            )
+        )
+        
+    def run_timelapse(self):
+        path = os.path.join(tempfile.gettempdir(), "timelapse.mp4")
+        Z_init = np.random.rand(128, 128)
+
+        # Create and start the worker thread
+        self._timelapse_thread = TimelapseThread(
+            Z_init,
+            steps=60,
+            therm_iters=1,
+            hydro_iters=1,
+            interval=100,
+            output_path=path
+        )
+        self._timelapse_thread.finished.connect(self.on_timelapse_done)
+        self._timelapse_thread.start()
+
+        # Optionally give the user some feedback right away:
+        QMessageBox.information(
+            self,
+            "Rendering…",
+            "Your erosion timelapse is being generated in the background. "
+            "I'll open it when it's ready 😊"
+        )
+
+    def on_timelapse_done(self, path):
+        webbrowser.open(path)
+
+def main():
+    app = QApplication(sys.argv)
+    win = MainWindow()
+    win.show()
+    sys.exit(app.exec())
+
+if __name__ == "__main__":
+    main()
+
+```
+
+tests/test_terrafract.py:
+```
+import numpy as np
+import pytest
+
+from terrafract import (
+    compute_slope,
+    compute_wetness,
+    assign_biomes,
+    biome_colormap,
+    synthesize_biomes,
+    generate_heightmap,
+    thermal_erosion,
+    hydraulic_erosion,
+    voronoi_cliffs,
+    reverse_engineer_heightmap,
+    estimate_spectral_exponent,
+    equalize_mean,
+    radial_power_spectrum,
+)
+
+def test_compute_slope_constant():
+    Z = np.ones((10, 10)) * 0.5
+    s = compute_slope(Z)
+    assert s.shape == Z.shape
+    assert np.allclose(s, 0)
+
+
+def test_compute_wetness_monotonic():
+    # gradient from 0 to 1
+    Z = np.linspace(0, 1, 100).reshape(10, 10)
+    w = compute_wetness(Z, smoothing_sigma=1)
+    assert w.shape == Z.shape
+    # lower Z should have higher wetness
+    assert w[0,0] > w[-1,-1]
+
+
+def test_assign_biomes_and_colormap():
+    Z = np.array([[0.1, 0.25, 0.5, 0.85, 0.95]])
+    slope = np.zeros_like(Z)
+    wet = np.zeros_like(Z)
+    b = assign_biomes(Z, slope, wet)
+    # expect water(0), sand(1), grass(2), forest(3), rock(4), snow(5)
+    assert list(b.ravel()) == [0, 1, 2, 3, 4, 5][:len(b.ravel())]
+    rgb = biome_colormap(b)
+    assert rgb.shape == (1, 5, 3)
+
+
+def test_synthesize_biomes_consistency():
+    Z = np.random.rand(32,32)
+    rgb, b = synthesize_biomes(Z)
+    assert rgb.shape == (32,32,3)
+    assert b.shape == (32,32)
+
+
+def test_generate_heightmap_ds_and_fbm():
+    Z1 = generate_heightmap('diamond-square', size=33, seed=0, roughness=0.5)
+    assert Z1.shape == (33,33)
+    assert Z1.min() >= 0 and Z1.max() <= 1
+    Z2 = generate_heightmap('fbm', size=32, seed=0, octaves=3, persistence=0.5, lacunarity=2.0, scale=10)
+    assert Z2.shape == (32,32)
+    assert Z2.min() >= 0 and Z2.max() <= 1
+
+
+@pytest.mark.slow
+def test_post_processing_preserves_shape_and_norm():
+    Z = np.random.rand(20,20)
+    Zt = thermal_erosion(Z, iterations=5, talus_angle=0.01)
+    Zh = hydraulic_erosion(Z, iterations=5, rain_amount=0.01)
+    Zv = voronoi_cliffs(Z, num_sites=5, ridge_height=0.2)
+    for Zp in (Zt, Zh, Zv):
+        assert Zp.shape == Z.shape
+        assert np.all(Zp >= 0) and np.all(Zp <= 1)
+
+
+def test_reverse_engineering_fbm():
+    # create a synthetic map
+    np.random.seed(1)
+    Z_real = generate_heightmap('fbm', size=64, seed=1, octaves=4, persistence=0.6, lacunarity=2.5, scale=20)
+    params, Z_synth = reverse_engineer_heightmap(Z_real, algorithm='fbm', seed=1)
+    assert 'H' in params
+    assert Z_synth.shape == Z_real.shape
+
+
+def test_estimate_spectral_exponent():
+    Z = np.random.rand(64,64)
+    beta, intercept = estimate_spectral_exponent(Z)
+    assert isinstance(beta, float)
+
+
+def test_comparative_study_helpers():
+    Z = np.random.rand(50,50)
+    Z_eq = equalize_mean(Z, target_mean=0.4)
+    assert abs(Z_eq.mean() - 0.4) < 1e-2
+    f, P = radial_power_spectrum(Z)
+    assert len(f) == len(P)
+    d = box_count_dim(Z)
+    assert isinstance(d, float)
+
+
+if __name__ == '__main__':
+    pytest.main()
+
+```
+
+
+
+Now implement 
