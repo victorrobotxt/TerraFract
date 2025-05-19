@@ -124,6 +124,8 @@ class FBMGenerator(HeightMapGenerator):
             tmp = np.interp(xv[np.newaxis, :], np.arange(self.size), self._base_noise)
             heightmap = np.interp(yv[:, np.newaxis], np.arange(self.size), tmp)
         else:
+            # now pass `base=self.seed` into pnoise2 so different seeds give different noise
+            base_seed = int(self.seed) if self.seed is not None else 0
             for i in range(shape[0]):
                 for j in range(shape[1]):
                     x = i / scale
@@ -131,7 +133,11 @@ class FBMGenerator(HeightMapGenerator):
                     amp, freq = 1.0, 1.0
                     val = 0.0
                     for _ in range(octaves):
-                        val += amp * self._noise_func(x * freq, y * freq)
+                        val += amp * self._noise_func(
+                            x * freq,
+                            y * freq,
+                            base=base_seed
+                        )
                         amp *= persistence
                         freq *= lacunarity
                     heightmap[i, j] = val
