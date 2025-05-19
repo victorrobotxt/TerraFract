@@ -1,26 +1,37 @@
 #!/usr/bin/env python3
-"""Graphical launcher for TerraFract – four side-by-side cards."""
+"""
+Graphical launcher for TerraFract – four side-by-side cards.
+
+New in this version
+-------------------
+• Timelapse card now opens a setup dialog where the user can
+  – select preset / seed / size / steps,
+  – preview the initial terrain, and
+  – choose the output MP4 file,
+  before the erosion movie is rendered.
+"""
 from __future__ import annotations
-import sys
-import os
+
 import io
+import os
+import sys
 import webbrowser
+import random
 
 import numpy as np
-from PySide6.QtWidgets import (
-    QApplication, QWidget, QHBoxLayout, QVBoxLayout,
-    QPushButton, QFileDialog, QDialog, QFormLayout,
-    QComboBox, QSpinBox, QLabel, QProgressBar,
-    QMessageBox, QSizePolicy
-)
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import (
+    QApplication, QWidget, QHBoxLayout, QVBoxLayout, QFormLayout,
+    QPushButton, QLabel, QComboBox, QSpinBox, QFileDialog,
+    QSizePolicy, QDialog, QProgressBar, QMessageBox,
+)
 
 from terrafract.heightmap_generators import generate_heightmap
 from terrafract.fractal_workbench import FractalWorkbench
 from terrafract.stretch_goals import create_erosion_timelapse
 
-# ───────────────── presets ──────────────────────────────────────────
+# ───────────────────────────── presets ──────────────────────────────
 PRESETS = {
     "Mountains": {"algorithm": "diamond-square", "roughness": 1.2},
     "Hills":     {"algorithm": "fbm",            "octaves": 4, "persistence": 0.6, "scale": 80},
@@ -42,8 +53,7 @@ DESCRIPTIONS = {
     "Help":      "Docs & source code",
 }
 
-
-# ───────────────── helper: embed a Matplotlib fig as QPixmap ─────────────────
+# ───────────────────────── helper: MPL ➜ QPixmap ───────────────────
 def _matplotlib_to_pixmap(fig) -> QPixmap:
     buf = io.BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight")
@@ -52,17 +62,16 @@ def _matplotlib_to_pixmap(fig) -> QPixmap:
     pix.loadFromData(buf.getvalue())
     return pix
 
-
-# ───────────────── Timelapse thread ─────────────────────────────────────────
+# ───────────────────── timelapse worker thread ──────────────────────
 class _TimelapseThread(QThread):
     progress = Signal(int)   # 0–100
-    finished = Signal(str)
+    finished = Signal(str)   # output path when done
 
-    def __init__(self, Z, steps, interval, out_path):
+    def __init__(self, Z, steps, interval_ms, out_path):
         super().__init__()
         self.Z = Z
         self.steps = steps
-        self.interval = interval
+        self.interval = interval_ms
         self.out = out_path
 
     def run(self):
@@ -77,9 +86,11 @@ class _TimelapseThread(QThread):
         self.progress.emit(100)
         self.finished.emit(self.out)
 
-
-# ───────────────── “Quick” dialog ───────────────────────────────────────────
+# ───────────────────── quick-PNG generator dialog ───────────────────
 class _QuickDlg(QDialog):
+    """
+    Pick preset / seed / size and save a single PNG (no erosion).
+    """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Quick Terrain")
@@ -107,7 +118,7 @@ class _QuickDlg(QDialog):
         self.path_lbl = QLabel("terrain.png")
         self.path_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         btn = QPushButton("Change…")
-        btn.clicked.connect(self._pick)
+        btn.clicked.connect(self._pick_path)
         hl.addWidget(self.path_lbl)
         hl.addWidget(btn)
         layout.addRow("Save to:", hl)
@@ -122,46 +133,143 @@ class _QuickDlg(QDialog):
 
         self._refresh()
 
-    def _pick(self):
+    # ---------- helpers ----------
+    def _pick_path(self):
         p, _ = QFileDialog.getSaveFileName(self, "Save PNG", "terrain.png", "PNG (*.png)")
         if p:
             self.path_lbl.setText(p)
 
-    @property
-    def params(self):
-        p = PRESETS[self.cb.currentText()].copy()
-        p.update(seed=self.seed.value(), size=self.sz.value())
-        return p
-
-    @property
-    def out_path(self):
-        return self.path_lbl.text()
-
     def _refresh(self):
+        """Update thumbnail preview."""
         p = self.params.copy()
-        p["size"] = min(p["size"], 64)
+        p["size"] = min(p["size"], 64)  # quick low-res preview
         fig = None
         try:
-            Z = generate_heightmap(
-                algorithm=p["algorithm"],
-                size=p["size"],
-                seed=p["seed"],
-                **{k: v for k, v in p.items() if k not in ("algorithm", "size", "seed")}
-            )
+            Z = generate_heightmap(**p)
             import matplotlib.pyplot as plt
-            fig, ax = plt.subplots(figsize=(2,2), dpi=100)
+            fig, ax = plt.subplots(figsize=(2, 2), dpi=100)
             ax.imshow(Z, cmap="terrain")
             ax.axis("off")
             pix = _matplotlib_to_pixmap(fig)
-            self.thumb.setPixmap(pix.scaled(
-                200,200, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            self.thumb.setPixmap(
+                pix.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            )
         finally:
             if fig:
                 import matplotlib.pyplot as plt
                 plt.close(fig)
 
+    # ---------- API ----------
+    @property
+    def params(self) -> dict:
+        p = PRESETS[self.cb.currentText()].copy()
+        p.update(seed=self.seed.value(), size=self.sz.value())
+        return p
 
-# ───────────────── Main window ───────────────────────────────────────────────
+    @property
+    def out_path(self) -> str:
+        return self.path_lbl.text()
+
+# ─────────────────── timelapse setup dialog (NEW) ────────────────────
+class _TimelapseDlg(QDialog):
+    """
+    Pick preset / seed / size / steps, preview the terrain,
+    and choose where the MP4 timelapse will be saved.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Timelapse Setup")
+        self.setMinimumWidth(420)
+
+        layout = QFormLayout(self)
+
+        # --- same controls as quick PNG ---
+        self.cb = QComboBox()
+        self.cb.addItems(PRESETS)
+        self.cb.currentTextChanged.connect(self._refresh)
+        layout.addRow("Preset:", self.cb)
+
+        self.seed = QSpinBox()
+        self.seed.setRange(0, 9999)
+        self.seed.setValue(random.randint(0, 9999))
+        self.seed.valueChanged.connect(self._refresh)
+        layout.addRow("Seed:", self.seed)
+
+        self.sz = QSpinBox()
+        self.sz.setRange(64, 1025)
+        self.sz.setValue(256)
+        self.sz.valueChanged.connect(self._refresh)
+        layout.addRow("Size:", self.sz)
+
+        # --- timelapse-specific ---
+        self.steps = QSpinBox()
+        self.steps.setRange(10, 600)
+        self.steps.setValue(60)
+        layout.addRow("Steps:", self.steps)
+
+        hl = QHBoxLayout()
+        self.path_lbl = QLabel("timelapse.mp4")
+        self.path_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        btn = QPushButton("Change…")
+        btn.clicked.connect(self._pick_path)
+        hl.addWidget(self.path_lbl)
+        hl.addWidget(btn)
+        layout.addRow("Save to:", hl)
+
+        self.thumb = QLabel(alignment=Qt.AlignCenter)
+        self.thumb.setFixedSize(200, 200)
+        layout.addRow(self.thumb)
+
+        ok = QPushButton("Start rendering")
+        ok.clicked.connect(self.accept)
+        layout.addRow(ok)
+
+        self._refresh()
+
+    # ---------- helpers ----------
+    def _pick_path(self):
+        p, _ = QFileDialog.getSaveFileName(
+            self, "Save timelapse", "timelapse.mp4", "MP4 (*.mp4)"
+        )
+        if p:
+            self.path_lbl.setText(p)
+
+    def _refresh(self):
+        """Update preview thumbnail."""
+        p = self.params.copy()
+        p["size"] = min(p["size"], 64)
+        fig = None
+        try:
+            Z = generate_heightmap(**p)
+            import matplotlib.pyplot as plt
+            fig, ax = plt.subplots(figsize=(2, 2), dpi=100)
+            ax.imshow(Z, cmap="terrain")
+            ax.axis("off")
+            pix = _matplotlib_to_pixmap(fig)
+            self.thumb.setPixmap(
+                pix.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            )
+        finally:
+            if fig:
+                import matplotlib.pyplot as plt
+                plt.close(fig)
+
+    # ---------- API ----------
+    @property
+    def params(self) -> dict:
+        p = PRESETS[self.cb.currentText()].copy()
+        p.update(seed=self.seed.value(), size=self.sz.value())
+        return p
+
+    @property
+    def out_path(self) -> str:
+        return self.path_lbl.text()
+
+    @property
+    def steps_val(self) -> int:
+        return self.steps.value()
+
+# ───────────────────────────── main window ───────────────────────────
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
@@ -173,9 +281,9 @@ class MainWindow(QWidget):
         layout.setAlignment(Qt.AlignCenter)
 
         for label in ("Quick", "Workbench", "Timelapse", "Help"):
-            btn = self._make_card(label)
-            layout.addWidget(btn)
+            layout.addWidget(self._make_card(label))
 
+    # ---------- card helper ----------
     def _make_card(self, label: str) -> QPushButton:
         btn = QPushButton()
         btn.setMinimumSize(160, 160)
@@ -191,31 +299,25 @@ class MainWindow(QWidget):
             "}"
         )
 
-        # internal layout for icon, title, description
-        container = QVBoxLayout(btn)
-        container.setContentsMargins(12, 12, 12, 12)
+        # inside layout
+        box = QVBoxLayout(btn)
+        box.setContentsMargins(12, 12, 12, 12)
 
-        # icon + title row
         row = QHBoxLayout()
-        ico = QLabel(ICONS[label])
-        ico.setStyleSheet("color: white;")
-        title = QLabel(label)
-        title.setStyleSheet("color: white; font-weight: bold;")
-        row.addWidget(ico)
-        row.addSpacing(6)
-        row.addWidget(title)
-        row.addStretch()
-        container.addLayout(row)
+        ico = QLabel(ICONS[label]); ico.setStyleSheet("color:white;")
+        title = QLabel(label); title.setStyleSheet("color:white;font-weight:bold;")
+        row.addWidget(ico); row.addSpacing(6); row.addWidget(title); row.addStretch()
+        box.addLayout(row)
 
-        # description in a softer color
         desc = QLabel(DESCRIPTIONS[label])
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: #AAAAAA;")
-        container.addWidget(desc, 1)
+        desc.setStyleSheet("color:#AAAAAA;")
+        box.addWidget(desc, 1)
 
         btn.clicked.connect(getattr(self, f"_on_{label.lower()}"))
         return btn
 
+    # ---------- card callbacks ----------
     def _on_quick(self):
         dlg = _QuickDlg(self)
         if dlg.exec() != QDialog.Accepted:
@@ -235,23 +337,28 @@ class MainWindow(QWidget):
         self._wb.show()
 
     def _on_timelapse(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save timelapse", "timelapse.mp4", "MP4 (*.mp4)"
-        )
-        if not path:
+        setup = _TimelapseDlg(self)
+        if setup.exec() != QDialog.Accepted:
             return
 
-        Z = np.random.rand(128, 128)
-        self._thread = _TimelapseThread(Z, steps=60, interval=100, out_path=path)
+        # Generate the initial heightmap with the chosen parameters
+        Z = generate_heightmap(**setup.params)
 
+        # Worker thread for rendering
+        self._thread = _TimelapseThread(
+            Z,
+            steps=setup.steps_val,
+            interval_ms=100,
+            out_path=setup.out_path,
+        )
+
+        # Progress dialog
         dlg = QDialog(self)
         dlg.setWindowTitle("Rendering timelapse…")
-        l = QVBoxLayout(dlg)
-        bar = QProgressBar()
-        bar.setRange(0, 100)
-        l.addWidget(bar)
-        cancel = QPushButton("Cancel")
-        l.addWidget(cancel)
+        v = QVBoxLayout(dlg)
+        bar = QProgressBar(); bar.setRange(0, 100)
+        v.addWidget(bar)
+        cancel = QPushButton("Cancel"); v.addWidget(cancel)
         cancel.clicked.connect(self._thread.terminate)
 
         self._thread.progress.connect(bar.setValue)
@@ -263,13 +370,12 @@ class MainWindow(QWidget):
     def _on_help(self):
         webbrowser.open("https://github.com/victorrobotxt/TerraFract")
 
-
+# ────────────────────────────── bootstrap ───────────────────────────
 def main():
     app = QApplication(sys.argv)
     win = MainWindow()
     win.show()
     sys.exit(app.exec())
-
 
 if __name__ == "__main__":
     main()

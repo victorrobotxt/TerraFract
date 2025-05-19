@@ -11,7 +11,6 @@ from PyInstaller.utils.hooks import (
 block_cipher = None
 proj = os.path.abspath(".")
 
-# ← point at your actual __main__.py
 entry_script = os.path.join("terrafract", "__main__.py")
 
 # 1) Qt plugins + matplotlib data
@@ -61,5 +60,5 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,            # GUI app
-    icon=os.path.join(proj, "terrafract.ico"),  # your custom .ico
+    icon=os.path.join(proj, "terrafract.ico"),
 )

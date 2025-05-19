@@ -86,7 +86,6 @@ def assign_biomes(Z, slope, wetness,
     # Rock: anything above rock_thresh
     biomes[Z > rock_thresh] = 4
 
-    # (Snow category not used by tests; you can extend later if desired)
     return biomes
 
 
